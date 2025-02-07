@@ -31,7 +31,7 @@ void free_task(Task *task) {
     free(task);
 }
 
-/* run_task: Runs the task and returns its status. */
+/* run_task: Runs the task and returns its exit status. */
 int run_task(Task *task) {
     // Create task process
     pid_t id;
