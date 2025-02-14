@@ -41,20 +41,23 @@ static RunningJob *create_running_job(Worker *worker, Job *job) {
 /* free_running_job: Frees memory allocated to the running job. */
 static void free_running_job(RunningJob *rjob) {
     if (rjob->worker->status == _WORKER_WORKING)
-        stop_job(rjob->worker);
+        stop(rjob->worker);
 
-    // Free all nodes
-    RunningJobNode *prev, *curr;    
-    if (rjob->head != NULL) {
-        curr = rjob->head;
-        while (curr->next) {
-            prev = curr;
-            curr = curr->next;
-            free(prev);
-        }
-        free(curr);
+    // Check if list is empty
+    if (rjob->head == NULL) {
+        free(rjob);
+        return;
     }
 
+    // Free all nodes
+    RunningJobNode *prev, *curr;
+    curr = rjob->head;
+    while (curr->next) {
+        prev = curr;
+        curr = curr->next;
+        free(prev);
+    }
+    free(curr);
     free(rjob);
 }
 
@@ -73,7 +76,7 @@ static void add_node(RunningJob *rjob, JobNode *job_node) {
     for (curr = rjob->head; curr->next; curr = curr->next)
         ;
     curr->next = new_node;
-    
+
     return;
 }
 
@@ -258,6 +261,4 @@ void stop(Worker *worker) {
             exit(EXIT_FAILURE);
         }
     }
-
-    return;
 }
