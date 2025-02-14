@@ -20,9 +20,6 @@ static RunningJobNode *create_running_job_node(JobNode *job_node) {
     return rjob_node;
 }
 
-/* free_running_job_node: Frees memory allocated to the running job node. */
-static void free_running_job_node(RunningJobNode *rjob_node);
-
 /* create_running_job: Creates a new running job. */
 static RunningJob *create_running_job(Worker *worker, Job *job) {
     RunningJob *rjob;
