@@ -19,7 +19,6 @@ static JobNode *create_job_node(Task *task) {
 /* free_job_node: Frees memory allocated to the job node. */
 static void free_job_node(JobNode *job_node) {
     free_task(job_node->task);
-    // kill task_thread
     free(job_node);
 }
 
@@ -34,12 +33,11 @@ Job *create_job(int id,int status) {
     job->id = id;
     job->status = status;
     job->head = NULL;
-    // job->job_thread = need default value
 
     return job;
 }
 
-/* free_job: Frees memory allocated to the job. */
+/* free_job: Frees the memory allocated to the job. */
 void free_job(Job *job) {
     // Free each job node
     JobNode *curr, *prev;
@@ -50,7 +48,6 @@ void free_job(Job *job) {
         free_job_node(prev);
     }
 
-    // kill job thread
     free(job);
 }
 

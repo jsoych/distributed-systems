@@ -2,7 +2,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/wait.h>
 #include "task.h"
 
 static char python[] = "/Users/leejahsprock/miniconda3/envs/DSI/bin/python";
@@ -31,30 +30,10 @@ void free_task(Task *task) {
     free(task);
 }
 
-/* run_task: Runs the task and returns its exit status. */
+/* run_task: Runs the task in place. */
 int run_task(Task *task) {
-    // Create task process
-    pid_t id;
-    if ((id = fork()) == -1) {
-        perror("task: run_task: fork");
+    if (execl(python, "python", task->name) == -1) {
+        perror("task: run_task: execl");
         exit(EXIT_FAILURE);
     }
-
-    // Run Task
-    if (id == 0) {
-        // Execute task
-        if (execl(python, "python", task->name) == -1) {
-            perror("task: run_task: execl");
-            exit(EXIT_FAILURE);
-        }
-    }
-
-    // Wait for task to complete
-    int status;
-    if (waitpid(id, &status, 0) == -1) {
-        perror("task: run_task: waitpid");
-        exit(EXIT_FAILURE);
-    }
-
-    return WEXITSTATUS(status);
 }
