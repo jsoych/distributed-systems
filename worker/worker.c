@@ -9,7 +9,7 @@
 /* create_running_job_node: Creates a new running job node. */
 static RunningJobNode *create_running_job_node(JobNode *job_node) {
     RunningJobNode *rjob_node;
-    if ((rjob_node = malloc(sizeof(RunningJobNode)) == NULL)) {
+    if ((rjob_node = malloc(sizeof(RunningJobNode))) == NULL) {
         perror("worker: create_running_job_node: malloc");
         exit(EXIT_FAILURE);
     }
@@ -29,6 +29,7 @@ static RunningJob *create_running_job(Worker *worker, Job *job) {
     }
 
     rjob->worker = worker;
+    rjob->worker->running_job = rjob;
     rjob->job = job;
     rjob->head = NULL;
 
@@ -40,7 +41,9 @@ static void free_running_job(RunningJob *rjob) {
     if (rjob->worker->status == _WORKER_WORKING)
         stop(rjob->worker);
 
-    // Check if list is empty
+    rjob->worker->running_job = NULL;
+
+    // Check if the list is empty
     if (rjob->head == NULL) {
         free(rjob);
         return;
@@ -73,8 +76,6 @@ static void add_node(RunningJob *rjob, JobNode *job_node) {
     for (curr = rjob->head; curr->next; curr = curr->next)
         ;
     curr->next = new_node;
-
-    return;
 }
 
 /* create_worker: Creates a new worker. */
@@ -96,8 +97,9 @@ Worker *create_worker(int id) {
     is working, then the running job is stopped. */
 void free_worker(Worker *worker) {
     if (worker->status == _WORKER_WORKING)
-        stop_job(worker);
-    free_running_job(worker->running_job);
+        stop(worker);
+    if (worker->running_job)
+        free_running_job(worker->running_job);
     free(worker);
 }
 
@@ -108,13 +110,19 @@ static void *task_status_handler(void *arg) {
     return NULL;
 }
 
-/* task_process_handler: Kills running task process. */
+/* task_process_handler: Terminates the running task process. */
 static void *task_process_handler(void *arg) {
     pid_t *id = (pid_t *) arg;
 
-    // Kill task process
-    if (kill(*id,SIGKILL) == -1) {
+    // Terminate the task process
+    if (kill(*id,SIGTERM) == -1) {
         perror("worker: task_process_handler: kill");
+        exit(EXIT_FAILURE);
+    }
+
+    // Reap zombie process
+    if (waitpid(*id,NULL,0) == -1) {
+        perror("worker: task_process_handler: waitpid");
         exit(EXIT_FAILURE);
     }
 
@@ -147,14 +155,14 @@ static void *task_thread(void *args) {
     pthread_cleanup_push(task_process_handler, &id);
 
     // Wait for the task to complete
-    int *status;
-    if (waitpid(id,status,0) == -1) {
+    int rv;
+    if (waitpid(id,&rv,0) == -1) {
         perror("worker: task_thread: waitpid");
         exit(EXIT_FAILURE);
     }
 
     // Set task status
-    if (WEXITSTATUS(*status) == 0)
+    if (WEXITSTATUS(rv) == 0)
         *(task_status) = _TASK_COMPLETED;
     else
         *(task_status) = _TASK_INCOMPLETE;
@@ -162,8 +170,6 @@ static void *task_thread(void *args) {
     // Remove cleanup handlers
     pthread_cleanup_pop(0);
     pthread_cleanup_pop(0);
-
-    pthread_exit(NULL);
 }
 
 /* job_thread: Runs the job and changes the status of the job. */
@@ -172,7 +178,8 @@ static void *job_thread(void *args) {
     RunningJob *rjob = (RunningJob *) args;
     Job *job = rjob->job;
 
-    // Set job status to running
+    // Set worker and job status
+    rjob->worker->status = _WORKER_WORKING;
     job->status = _JOB_RUNNING;
 
     // Create task threads
@@ -190,6 +197,29 @@ static void *job_thread(void *args) {
             exit(EXIT_FAILURE);
         }
 
+    // Remove completed tasks from the running job
+    RunningJobNode *curr, *prev;
+    curr = rjob->head;
+    prev = NULL;
+    while (curr) {
+        if (curr->job_node->status == _TASK_INCOMPLETE) {
+            prev = curr;
+            curr = curr->next;
+            continue;
+        }
+
+        if (prev == NULL) {
+            rjob->head = curr->next;
+            free(curr);
+            curr = rjob->head;
+            continue;
+        }
+
+        prev->next = curr->next;
+        free(curr);
+        curr = prev->next;
+    }
+
     // Update job status
     JobNode *node;
     for (node = job->head, job->status = _JOB_COMPLETED; node; node = node->next)
@@ -198,10 +228,8 @@ static void *job_thread(void *args) {
             break;
         }
     
-    // Set worker status
+    // Update worker status
     rjob->worker->status = _WORKER_NOT_WORKING;
-    
-    pthread_exit(NULL);
 }
 
 /* run_job: Runs the job and returns 0. If the worker is workering then,
@@ -213,7 +241,7 @@ int run_job(Worker *worker, Job *job) {
     // Check the job status
     if (job->status == _JOB_COMPLETED)
         return 0;
-    
+
     // Free the old running job
     if (worker->running_job)
         free_running_job(worker->running_job);
@@ -233,9 +261,28 @@ int run_job(Worker *worker, Job *job) {
         exit(EXIT_FAILURE);
     }
 
-    // Detach job thread
-    if (pthread_detach(rjob->job_tid) != 0) {
-        perror("worker: run_job: pthread_detach");
+    return 0;
+}
+
+// start: Starts the worker and returns 0. Otherwise, start returns -1.
+int start(Worker *worker) {
+    if (worker->status == _WORKER_WORKING) {
+        fprintf(stderr, "worker: start: worker is already working\n");
+        return -1;
+    }
+
+    if (worker->running_job == NULL) {
+        fprintf(stderr, "worker: start: no running job\n");
+        return -1;
+    }
+
+    if (worker->running_job->job->status == _JOB_COMPLETED)
+        return 0;
+
+    // Create job thread
+    if (pthread_create(&worker->running_job->job_tid, NULL, job_thread,
+            worker->running_job) != 0) {
+        perror("worker: start: pthread_create");
         exit(EXIT_FAILURE);
     }
 
@@ -253,9 +300,14 @@ void stop(Worker *worker) {
     // Stop each running task
     RunningJobNode *node;
     for (node = worker->running_job->head; node; node = node->next) {
-        if (pthread_cancel(node->task_tid) != 0) {
+        // Try to cancel thread
+        if (pthread_cancel(node->task_tid) != 0)
             perror("worker: stop: pthread_cancel");
-            exit(EXIT_FAILURE);
-        }
+    }
+
+    // Join job thread
+    if (pthread_join(worker->running_job->job_tid,NULL) != 0) {
+        perror("worker: stop: pthread_join");
+        exit(EXIT_FAILURE);
     }
 }

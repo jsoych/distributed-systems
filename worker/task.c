@@ -32,7 +32,7 @@ void free_task(Task *task) {
 
 /* run_task: Runs the task in place. */
 int run_task(Task *task) {
-    if (execl(python, "python", task->name) == -1) {
+    if (execl(python, "python", task->name, NULL) == -1) {
         perror("task: run_task: execl");
         exit(EXIT_FAILURE);
     }

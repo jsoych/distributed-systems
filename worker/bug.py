@@ -10,12 +10,12 @@ os.close(sys.stdout.fileno())
 os.dup(fd)
 
 # Close stderr and write its output to the output file
-os.close(sys.stdout.fileno())
+os.close(sys.stderr.fileno())
 os.dup(fd)
 
 os.close(fd)
 
-time.sleep(20)
-with open('file', 'r') as f:
-    # Try to write to a read only file
-    f.write()
+time.sleep(5)
+with open('file', 'w') as f:
+    # Try to read from a read only file
+    f.read()

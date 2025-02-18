@@ -6,6 +6,8 @@
 #include <pthread.h>
 #include "job.h"
 
+struct _worker;
+
 typedef struct _running_job_node {
     JobNode *job_node;
     pthread_t task_tid;
@@ -13,7 +15,7 @@ typedef struct _running_job_node {
 } RunningJobNode;
 
 typedef struct _running_job {
-    Worker *worker;
+    struct _worker *worker;
     Job *job;
     pthread_t job_tid;
     RunningJobNode *head;
@@ -28,6 +30,7 @@ typedef struct _worker {
 Worker *create_worker(int);
 void free_worker(Worker *);
 int run_job(Worker *, Job *);
+int start(Worker *);
 void stop(Worker *);
 
 #endif
