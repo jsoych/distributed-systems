@@ -30,6 +30,7 @@ typedef struct _worker {
 Worker *create_worker(int);
 void free_worker(Worker *);
 int run_job(Worker *, Job *);
+int get_status(Worker *, int *);
 int start(Worker *);
 void stop(Worker *);
 

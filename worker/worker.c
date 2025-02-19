@@ -237,10 +237,6 @@ static void *job_thread(void *args) {
 int run_job(Worker *worker, Job *job) {
     if (worker->status == _WORKER_WORKING)
         return -1;
-    
-    // Check the job status
-    if (job->status == _JOB_COMPLETED)
-        return 0;
 
     // Free the old running job
     if (worker->running_job)
@@ -262,6 +258,19 @@ int run_job(Worker *worker, Job *job) {
     }
 
     return 0;
+}
+
+/* get_status: Returns the status of the worker. If the worker's
+    running_job attribute is set, get_status stores the status of the
+    running_job at the given job_status address. */
+int get_status(Worker *worker, int * job_status) {
+    if (job_status == NULL)
+        return worker->status;
+
+    if (worker->running_job)
+        *job_status = worker->running_job->job->status;
+
+    return worker->status;
 }
 
 // start: Starts the worker and returns 0. Otherwise, start returns -1.
