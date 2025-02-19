@@ -11,15 +11,15 @@
 // Debug level
 #define DEBUG 1
 
+#define True 1
+#define False 0
+
 // cJSON macros
 #define Bool CJSON_PUBLIC(cJSON_bool)
-#define Invalid cJSON_Invalid
-#define True cJSON_True
-#define False cJSON_False
 #define CreateObject() cJSON_CreateObject()
 #define Delete(item) cJSON_Delete(item)
 #define IsNull(item) cJSON_IsNull(item)
-#define IsValid(item) cJSON_IsInvalid(item)
+#define IsInvalid(item) cJSON_IsInvalid(item)
 #define IsObject(item) cJSON_IsObject(item)
 #define HasItem(obj,name) cJSON_HasObjectItem(obj,name)
 #define GetItem(obj,name) cJSON_GetObjectItem(obj,name)
@@ -50,8 +50,9 @@ int main(int argc, char *argv[]) {
     worker = create_worker((int) strtol(argv[1],NULL,0));
 
     // Create a local socket
-    char *name, *s;
     struct sockaddr_un addr;
+    char name[sizeof(addr.sun_path)];
+    char *s = name;
     int sd;
     socklen_t size;
 
@@ -59,8 +60,8 @@ int main(int argc, char *argv[]) {
     addr.sun_family = AF_LOCAL;
 
     // Create socket name with worker id
-    s = stpncpy(s, "worker", sizeof(addr.sun_path) - 1);
-    s = stpncpy(s, argv[1], sizeof(addr.sun_path) - (6+1));
+    s = stpncpy(s, "worker", sizeof(name) - 1);
+    s = stpncpy(s, argv[1], sizeof(name) - (6+1));
     *s = '\0';
     strcpy(addr.sun_path,name);
 
@@ -89,8 +90,7 @@ int main(int argc, char *argv[]) {
     int client_fd, nbytes;
     struct sockaddr_storage client_addr;
     size = sizeof(client_addr);
-    cJSON *obj, *ret;
-    cJSON *command, *item;
+    cJSON *obj, *ret, *item;
     while (1) {
         // Accept client connection
         if ((client_fd = accept(sd, (struct sockaddr *) &client_addr, &size)) == -1) {
@@ -100,13 +100,12 @@ int main(int argc, char *argv[]) {
 
         while ((nbytes = recv(client_fd, buf, BUFFLEN, BUFFLEN)) > 0) {
             buf[(nbytes >= BUFFLEN) ? BUFFLEN-1 : nbytes] = '\0';
-            printf("%s\n",buf);
             obj = Unmarshal(buf);
             ret = CreateObject();
 
             // Check obj
-            if (IsValid(obj) == Invalid) {
-                item = CreateString("invalid json object");
+            if (IsInvalid(obj)) {
+                item = CreateString("invalid");
                 AddItem(ret,"error",item);
             }
             // Check if obj is a json object
@@ -129,6 +128,7 @@ int main(int argc, char *argv[]) {
             if (DEBUG == 1) {
                 item = CreateString(Marshal(obj));
                 AddItem(ret, "debug", item);
+                printf("%s\n",buf);
             }
 
             // Copy object to buffer
@@ -148,9 +148,6 @@ int main(int argc, char *argv[]) {
         // Check recv return value
         if (nbytes == -1)
             perror("main: recv");
-
-        if (nbytes == 0)
-            ;
 
         if (nbytes > 0)
             break;
@@ -237,12 +234,12 @@ Bool cJSON_CallCommand(cJSON *obj, cJSON *ret) {
 
 /* cJSON_CreateJob: Creates a new job from an json object. The object
     is expected to formatted in the following way,
-    {"id":number, "tasks":{"task1","task2",...}. */
+    {"id":number, "tasks":["task1","task2",...]}. */
 Job *cJSON_CreateJob(cJSON *obj) {
     cJSON *id = GetItem(obj,"id");
     Job *job = create_job(id->valuedouble,_JOB_INCOMPLETE);
-    for (cJSON *task = GetItem(obj,"tasks"); task; task = task->next) {
-        add_task(job,task->string);
+    for (cJSON *task = GetItem(obj,"tasks")->child; task; task = task->next) {
+        add_task(job,task->valuestring);
     }
     return job;
 }
