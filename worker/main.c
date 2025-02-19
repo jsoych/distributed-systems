@@ -15,7 +15,6 @@
 #define False 0
 
 // cJSON macros
-#define Bool CJSON_PUBLIC(cJSON_bool)
 #define CreateObject() cJSON_CreateObject()
 #define Delete(item) cJSON_Delete(item)
 #define IsNull(item) cJSON_IsNull(item)
@@ -33,7 +32,7 @@
 
 // Helper functions
 Job *cJSON_CreateJob(cJSON *obj);
-Bool cJSON_CallCommand(cJSON *obj, cJSON *ret);
+void cJSON_CallCommand(cJSON *obj, cJSON *ret);
 
 #define BUFFLEN 1024
 
@@ -119,9 +118,8 @@ int main(int argc, char *argv[]) {
                 AddItem(ret, "error", item);
             }
             // Pass the command to the worker
-            else if (CallCommand(obj,ret) == False) {
-                item = CreateString("invalid command");
-                AddItem(ret, "error", item);
+            else {
+                CallCommand(obj,ret);
             }
 
             // Add debugging info
@@ -159,9 +157,8 @@ int main(int argc, char *argv[]) {
 
 /* cJSON_CallCommand: Calls one of the worker's commands and adds its
     status to ret. If the called command includes a side effect, it adds
-    the status of the side effect to ret. Lastly, if the function succeeds,
-    it returns True, otherwise, it returns False. */
-Bool cJSON_CallCommand(cJSON *obj, cJSON *ret) {
+    the status of the side effect to ret. */
+void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
     int status, job_status;
     cJSON *item;
     char *command = GetItem(obj,"command")->valuestring;
@@ -178,7 +175,7 @@ Bool cJSON_CallCommand(cJSON *obj, cJSON *ret) {
         if (HasItem(obj,"job") == False) {
             item = CreateString("missing job");
             AddItem(ret,"error",item);
-            return False;
+            return;
         }
 
         // Create new job
@@ -226,10 +223,10 @@ Bool cJSON_CallCommand(cJSON *obj, cJSON *ret) {
     else {
         item = CreateString("invalid command");
         AddItem(ret,"error",item);
-        return False;
+        return;
     }
 
-    return True;
+    return;
 }
 
 /* cJSON_CreateJob: Creates a new job from an json object. The object
