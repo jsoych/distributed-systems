@@ -8,25 +8,40 @@
 #include "worker.h"
 #include "cJSON.h"
 
-#define Run_Job(job) run_job(worker, cJSON_CreateJob(job))
-#define Get_Status(ret) cJSON_AddWorkerStatus(ret)
-#define Start() start(worker)
-#define Stop() stop(worker)
+// Debug level
+#define DEBUG 1
+
+// cJSON macros
+#define Bool CJSON_PUBLIC(cJSON_bool)
+#define Invalid cJSON_Invalid
+#define True cJSON_True
+#define False cJSON_False
+#define CreateObject() cJSON_CreateObject()
+#define Delete(item) cJSON_Delete(item)
+#define IsNull(item) cJSON_IsNull(item)
+#define IsValid(item) cJSON_IsInvalid(item)
+#define IsObject(item) cJSON_IsObject(item)
+#define HasItem(obj,name) cJSON_HasObjectItem(obj,name)
+#define GetItem(obj,name) cJSON_GetObjectItem(obj,name)
+#define AddItem(obj,name,item) cJSON_AddItemToObject(obj,name,item)
+#define CreateNumber(num) cJSON_CreateNumber(num)
+#define CreateString(str) cJSON_CreateString(str)
+#define CreateJob(obj) cJSON_CreateJob(obj)
+#define CallCommand(obj,ret) cJSON_CallCommand(obj,ret)
+#define Marshal(item) cJSON_PrintUnformatted(item)
+#define Unmarshal(str) cJSON_Parse(str)
+
+// Helper functions
+Job *cJSON_CreateJob(cJSON *obj);
+Bool cJSON_CallCommand(cJSON *obj, cJSON *ret);
 
 #define BUFFLEN 1024
 
 char buf[BUFFLEN];
-
-void print_status(FILE *);
-void print_job_status(FILE *, Job *);
-Job *cJSON_CreateJob(cJSON *);
-CJSON_PUBLIC(cJSON_bool) cJSON_AddWorkerStatus(cJSON *);
-CJSON_PUBLIC(cJSON_bool) cJSON_CommandWorker(cJSON *, cJSON *);
-
-int quit_flag = 0;
 Worker *worker;
 
 int main(int argc, char *argv[]) {
+    // Check argument
     if (argc != 2) {
         fprintf(stderr, "main: expected 1 argument, received %d arguments\n", argc-1);
         exit(EXIT_FAILURE);
@@ -34,31 +49,34 @@ int main(int argc, char *argv[]) {
 
     worker = create_worker((int) strtol(argv[1],NULL,0));
 
-    // Create named socket
-    struct sockaddr_un name;
+    // Create a local socket
+    char *name, *s;
+    struct sockaddr_un addr;
     int sd;
     socklen_t size;
 
-    memset(&name,0,sizeof(name));
-    name.sun_family = AF_LOCAL;
+    memset(&addr,0,sizeof(addr));
+    addr.sun_family = AF_LOCAL;
 
-    // Append worker id to socket name
-    char *s;
-    s = stpcpy(name.sun_path, "worker");
-    strcpy(s,argv[1]);
-    size = SUN_LEN(&name);
+    // Create socket name with worker id
+    s = stpncpy(s, "worker", sizeof(addr.sun_path) - 1);
+    s = stpncpy(s, argv[1], sizeof(addr.sun_path) - (6+1));
+    *s = '\0';
+    strcpy(addr.sun_path,name);
+
+    size = SUN_LEN(&addr);
     
     if ((sd = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
         exit(EXIT_FAILURE);
     }
 
-    if (unlink(name.sun_path) == 1) {
+    if (unlink(addr.sun_path) == 1) {
         perror("main: unlink");
         exit(EXIT_FAILURE);
     }
 
-    if (bind(sd, (struct sockaddr *) &name, size) == -1) {
+    if (bind(sd, (struct sockaddr *) &addr, size) == -1) {
         perror("main: bind");
         exit(EXIT_FAILURE);
     }
@@ -83,54 +101,46 @@ int main(int argc, char *argv[]) {
         while ((nbytes = recv(client_fd, buf, BUFFLEN, BUFFLEN)) > 0) {
             buf[(nbytes >= BUFFLEN) ? BUFFLEN-1 : nbytes] = '\0';
             printf("%s\n",buf);
-            obj = cJSON_Parse(buf);
-            ret = cJSON_CreateObject();
+            obj = Unmarshal(buf);
+            ret = CreateObject();
 
             // Check obj
-            if (cJSON_IsNull(obj)) {
-                item = cJSON_CreateString("invalid");
-                cJSON_AddItemToObject(ret, "error", item);
+            if (IsValid(obj) == Invalid) {
+                item = CreateString("invalid json object");
+                AddItem(ret,"error",item);
             }
             // Check if obj is a json object
-            else if (cJSON_IsObject(obj) == cJSON_False) {
-                item = cJSON_CreateString("invalid json object");
-                cJSON_AddItemToObject(ret, "error", item);
-                // Return the parsed json object for debugging
-                item = cJSON_CreateString(cJSON_PrintUnformatted(obj));
-                cJSON_AddItemToObject(ret, "debug", item);
+            else if (IsObject(obj) == False) {
+                item = CreateString("invalid json object");
+                AddItem(ret, "error", item);
             } 
             // Check if obj has a command item
-            else if (cJSON_HasObjectItem(obj,"command") == cJSON_False) {
-                item = cJSON_CreateString("missing command item");
-                cJSON_AddItemToObject(ret, "error", item);
-                // Return the parsed json object for debugging
-                item = cJSON_CreateString(cJSON_PrintUnformatted(obj));
-                cJSON_AddItemToObject(ret, "debug", item);
+            else if (HasItem(obj,"command") == False) {
+                item = CreateString("missing command item");
+                AddItem(ret, "error", item);
             }
             // Pass the command to the worker
-            else if (cJSON_Command(obj) == cJSON_False) {
-                item = cJSON_CreateString("invalid command");
-                cJSON_AddItemToObject(ret, "error", item);
-                // Return the parsed json object for debugging
-                item = cJSON_CreateString(cJSON_PrintUnformatted(obj));
-                cJSON_AddItemToObject(ret, "debug", item);
+            else if (CallCommand(obj,ret) == False) {
+                item = CreateString("invalid command");
+                AddItem(ret, "error", item);
             }
-            // Add debugging info to ret
-            else {
-                item = cJSON_CreateString(cJSON_PrintUnformatted(obj));
-                cJSON_AddItemToObject(ret, "debug", item);
+
+            // Add debugging info
+            if (DEBUG == 1) {
+                item = CreateString(Marshal(obj));
+                AddItem(ret, "debug", item);
             }
 
             // Copy object to buffer
-            strncpy(buf,cJSON_PrintUnformatted(ret),BUFFLEN);
+            strncpy(buf, Marshal(ret), BUFFLEN);
             printf("%s\n",buf);
 
             // Send return object to client
             if (send(client_fd, buf, strnlen(buf,BUFFLEN), 0) == -1)
                 perror("main: send");
 
-            cJSON_Delete(ret);
-            cJSON_Delete(obj);
+            Delete(ret);
+            Delete(obj);
         }
         
         close(client_fd);
@@ -150,71 +160,89 @@ int main(int argc, char *argv[]) {
     free_worker(worker);
 }
 
-// prints the status of the worker
-void print_status(FILE *file) {
-    char s[15];
-    strcpy(s,"invalid status");
-    if (worker->status == _WORKER_NOT_WORKING)
-        strcpy(s,"not working");
-    else if (worker->status == _WORKER_WORKING)
-        strcpy(s,"working");
-    fprintf(file, "worker status: %s\n", s);
-}
-
-// prints the status of the job
-void print_job_status(FILE *file, Job *job) {
-    char s[15];
-    strcpy(s,"invalid status");
-    if (job->status == _JOB_INCOMPLETE)
-        strcpy(s,"incomplete");
-    else if (job->status == _JOB_RUNNING)
-        strcpy(s,"running");
-    else if (job->status == _JOB_COMPLETED)
-        strcpy(s,"completed");
-    fprintf(file, "job status: %s\n", s);
-}
-
-CJSON_PUBLIC(cJSON_bool) cJSON_CommandWorker(cJSON *obj, cJSON *ret) {
-    Job *job;
-    cJSON *item, *id, *tasks, *task;
-
-    // Get command
-    char *command = cJSON_GetObjectItem(obj,"command")->valuestring;
-
-    // Get status
-    if (strcmp(command,"get_status") == 0)
-        ;
-    // Run job
+/* cJSON_CallCommand: Calls one of the worker's commands and adds its
+    status to ret. If the called command includes a side effect, it adds
+    the status of the side effect to ret. Lastly, if the function succeeds,
+    it returns True, otherwise, it returns False. */
+Bool cJSON_CallCommand(cJSON *obj, cJSON *ret) {
+    int status, job_status;
+    cJSON *item;
+    char *command = GetItem(obj,"command")->valuestring;
+    
+    // Get worker status
+    if (strcmp(command,"get_status") == 0) {
+        status = get_status(worker,NULL);
+        item = CreateNumber(status);
+        AddItem(ret,"status",item);
+    }
+    // Run Job
     else if (strcmp(command,"run_job") == 0) {
-        if (cJSON_HasObjectItem(obj,"job") == cJSON_True) {
-            item = cJSON_GetObjectItem(obj,"job");
-            id = cJSON_GetObjectItem(item, "id");
-            job = create_job((int) id->valuedouble,_JOB_INCOMPLETE);
-            tasks = cJSON_GetObjectItem(item,"tasks");
-            for (task = tasks; task; task->next) {
-                add_task(job,task->string);
-            }
-            if (Run_Job(job) == -1) {
-                item = cJSON_CreateString("worker is already working");
-                cJSON_AddItemToObject(ret, "error", item);
-            }
+        // Check obj for job
+        if (HasItem(obj,"job") == False) {
+            item = CreateString("missing job");
+            AddItem(ret,"error",item);
+            return False;
+        }
+
+        // Create new job
+        item = GetItem(obj,"job");
+        if (run_job(worker,CreateJob(item)) == -1) {
+            item = CreateString("worker is already working");
+            AddItem(ret,"error",item);
+        } else {
+            status = get_status(worker,&job_status);
+            item = CreateNumber(status);
+            AddItem(ret,"status",item);
+            item = CreateNumber(job_status);
+            AddItem(ret,"job_status",item);
         }
     }
-    // Start working
-    else if (strcmp(command,"start") == 0) 
-        Start();
-    // Stop working
-    else if (strcmp(command,"stop") == 0)
-        Stop();
+    // Start job
+    else if (strcmp(command,"start") == 0) {
+        // Check worker status
+        if (worker->status == _WORKER_WORKING) {
+            item = CreateString("worker is already working");
+            AddItem(ret,"error",item);
+        }
+        // Start job
+        else if (start(worker) == -1) {
+            item = CreateString("no job assigned to worker");
+            AddItem(ret,"error",item);
+        }
+        // Get status
+        else {
+            status = get_status(worker,&job_status);
+            item = CreateNumber(status);
+            AddItem(ret,"status",item);
+            item = CreateNumber(job_status);
+            AddItem(ret,"job_status",item);
+        }
+    }
+    // Stop Job
+    else if (strcmp(command,"stop") == 0) {
+        stop(worker);
+        status = get_status(worker,NULL);
+        item = CreateNumber(status);
+        AddItem(ret,"status",item);
+    }
     // Invalid Command
     else {
-        item = cJSON_CreateString("invalid command");
-        cJSON_AddItemToObject(ret, "error", item);
-        item = cJSON_CreateString(command);
-        cJSON_AddItemToObject(ret, "command", item);
-        return cJSON_False;
+        item = CreateString("invalid command");
+        AddItem(ret,"error",item);
+        return False;
     }
-    
-    Get_Status(ret);
-    return cJSON_True;
+
+    return True;
+}
+
+/* cJSON_CreateJob: Creates a new job from an json object. The object
+    is expected to formatted in the following way,
+    {"id":number, "tasks":{"task1","task2",...}. */
+Job *cJSON_CreateJob(cJSON *obj) {
+    cJSON *id = GetItem(obj,"id");
+    Job *job = create_job(id->valuedouble,_JOB_INCOMPLETE);
+    for (cJSON *task = GetItem(obj,"tasks"); task; task = task->next) {
+        add_task(job,task->string);
+    }
+    return job;
 }

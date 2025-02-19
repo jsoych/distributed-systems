@@ -263,7 +263,7 @@ int run_job(Worker *worker, Job *job) {
 /* get_status: Returns the status of the worker. If the worker's
     running_job attribute is set, get_status stores the status of the
     running_job at the given job_status address. */
-int get_status(Worker *worker, int * job_status) {
+int get_status(Worker *worker, int *job_status) {
     if (job_status == NULL)
         return worker->status;
 
