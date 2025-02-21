@@ -8,9 +8,6 @@
 #include "worker.h"
 #include "cJSON.h"
 
-// Debug level
-#define DEBUG 1
-
 #define True 1
 #define False 0
 
@@ -34,6 +31,10 @@
 Job *cJSON_CreateJob(cJSON *obj);
 void cJSON_CallCommand(cJSON *obj, cJSON *ret);
 
+// Debug levels
+enum debug_levels{info, debug};
+enum debug_levels debug_level;
+
 #define BUFFLEN 1024
 
 char buf[BUFFLEN];
@@ -41,11 +42,19 @@ Worker *worker;
 
 int main(int argc, char *argv[]) {
     // Check argument
-    if (argc != 2) {
-        fprintf(stderr, "main: expected 1 argument, received %d arguments\n", argc-1);
+    if (argc != 3) {
+        fprintf(stderr, "main: expected 2 arguments, received %d arguments\n", argc-1);
         exit(EXIT_FAILURE);
     }
 
+    // Debugging level defaults to info
+    if (strcmp(argv[2],"debug") == 0) {
+        debug_level = debug;
+    } else {
+        debug_level = info;
+    }
+
+    // Create worker with id
     worker = create_worker((int) strtol(argv[1],NULL,0));
 
     // Create a local socket
@@ -122,16 +131,19 @@ int main(int argc, char *argv[]) {
                 CallCommand(obj,ret);
             }
 
-            // Add debugging info
-            if (DEBUG == 1) {
+            // Add debugging info to the return object
+            if (debug_level == debug) {
                 item = CreateString(Marshal(obj));
-                AddItem(ret, "debug", item);
-                printf("%s\n",buf);
+                AddItem(ret,"debug",item);
             }
 
-            // Copy object to buffer
+            // Copy the return object to buffer
             strncpy(buf, Marshal(ret), BUFFLEN);
-            printf("%s\n",buf);
+
+            // Add debugging info to the logging file
+            if (debug_level == debug) {
+                fprintf(stdout,"%s\n",buf);
+            }
 
             // Send return object to client
             if (send(client_fd, buf, strnlen(buf,BUFFLEN), 0) == -1)
@@ -151,8 +163,10 @@ int main(int argc, char *argv[]) {
             break;
     }
     
+    // Clean up and exit
     close(sd);
     free_worker(worker);
+    exit(EXIT_SUCCESS);
 }
 
 /* cJSON_CallCommand: Calls one of the worker's commands and adds its
@@ -168,6 +182,12 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
         status = get_status(worker,NULL);
         item = CreateNumber(status);
         AddItem(ret,"status",item);
+    }
+    // Get job status
+    else if (strcmp(command,"get_job_status") == 0) {
+        get_status(worker,&job_status);
+        item = CreateNumber(job_status);
+        AddItem(ret,"job_status",item);
     }
     // Run Job
     else if (strcmp(command,"run_job") == 0) {
