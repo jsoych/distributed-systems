@@ -6,10 +6,6 @@
 #define _JOB_RUNNING 1
 #define _JOB_COMPLETED 2
 
-#define _TASK_INCOMPLETE -1
-#define _TASK_RUNNING 1
-#define _TASK_COMPLETED 2
-
 #include "task.h"
 
 typedef struct _job_node {

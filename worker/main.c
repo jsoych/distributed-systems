@@ -39,6 +39,7 @@ enum debug_levels debug_level;
 
 char buf[BUFFLEN];
 Worker *worker;
+Job *job;
 
 int main(int argc, char *argv[]) {
     // Check argument
@@ -56,6 +57,8 @@ int main(int argc, char *argv[]) {
 
     // Create worker with id
     worker = create_worker((int) strtol(argv[1],NULL,0));
+
+    job = NULL;
 
     // Create a local socket
     struct sockaddr_un addr;
@@ -166,6 +169,7 @@ int main(int argc, char *argv[]) {
     // Clean up and exit
     close(sd);
     free_worker(worker);
+    if (job) free_job(job);
     exit(EXIT_SUCCESS);
 }
 
@@ -173,41 +177,49 @@ int main(int argc, char *argv[]) {
     status to ret. If the called command includes a side effect, it adds
     the status of the side effect to ret. */
 void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
-    int status, job_status;
+    Job *new_job;
     cJSON *item;
     char *command = GetItem(obj,"command")->valuestring;
     
     // Get worker status
     if (strcmp(command,"get_status") == 0) {
-        status = get_status(worker,NULL);
-        item = CreateNumber(status);
+        item = CreateNumber(worker->status);
         AddItem(ret,"status",item);
     }
     // Get job status
     else if (strcmp(command,"get_job_status") == 0) {
-        get_status(worker,&job_status);
-        item = CreateNumber(job_status);
-        AddItem(ret,"job_status",item);
+        if (job == NULL) {
+            item = CreateString("missing job");
+            AddItem(ret,"error",item);
+        } else {
+            item = CreateNumber(job->status);
+            AddItem(ret,"job_status",item);
+        }
     }
     // Run Job
     else if (strcmp(command,"run_job") == 0) {
         // Check obj for job
         if (HasItem(obj,"job") == False) {
-            item = CreateString("missing job");
+            item = CreateString("missing job spec");
             AddItem(ret,"error",item);
             return;
         }
 
         // Create new job
         item = GetItem(obj,"job");
-        if (run_job(worker,CreateJob(item)) == -1) {
+        new_job = cJSON_CreateJob(item);
+        if (run_job(worker,new_job) == -1) {
             item = CreateString("worker is already working");
             AddItem(ret,"error",item);
         } else {
-            status = get_status(worker,&job_status);
-            item = CreateNumber(status);
+            // Replace old job with the new job
+            if (job) free_job(job);
+            job = new_job;
+
+            // Return worker and job statuses
+            item = CreateNumber(worker->status);
             AddItem(ret,"status",item);
-            item = CreateNumber(job_status);
+            item = CreateNumber(job->status);
             AddItem(ret,"job_status",item);
         }
     }
@@ -225,18 +237,16 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
         }
         // Get status
         else {
-            status = get_status(worker,&job_status);
-            item = CreateNumber(status);
+            item = CreateNumber(worker->status);
             AddItem(ret,"status",item);
-            item = CreateNumber(job_status);
+            item = CreateNumber(job->status);
             AddItem(ret,"job_status",item);
         }
     }
     // Stop Job
     else if (strcmp(command,"stop") == 0) {
         stop(worker);
-        status = get_status(worker,NULL);
-        item = CreateNumber(status);
+        item = CreateNumber(worker->status);
         AddItem(ret,"status",item);
     }
     // Invalid Command
@@ -251,12 +261,12 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
 
 /* cJSON_CreateJob: Creates a new job from an json object. The object
     is expected to formatted in the following way,
-    {"id":number, "tasks":["task1","task2",...]}. */
+    {"id":number, "tasks":["task1","task2",...]}.*/
 Job *cJSON_CreateJob(cJSON *obj) {
     cJSON *id = GetItem(obj,"id");
-    Job *job = create_job(id->valuedouble,_JOB_INCOMPLETE);
+    Job *new_job = create_job(id->valuedouble,_JOB_INCOMPLETE);
     for (cJSON *task = GetItem(obj,"tasks")->child; task; task = task->next) {
-        add_task(job,task->valuestring);
+        add_task(new_job,task->valuestring);
     }
-    return job;
+    return new_job;
 }
