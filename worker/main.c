@@ -14,7 +14,6 @@
 // cJSON macros
 #define CreateObject() cJSON_CreateObject()
 #define Delete(item) cJSON_Delete(item)
-#define IsNull(item) cJSON_IsNull(item)
 #define IsInvalid(item) cJSON_IsInvalid(item)
 #define IsObject(item) cJSON_IsObject(item)
 #define HasItem(obj,name) cJSON_HasObjectItem(obj,name)
@@ -22,6 +21,7 @@
 #define AddItem(obj,name,item) cJSON_AddItemToObject(obj,name,item)
 #define CreateNumber(num) cJSON_CreateNumber(num)
 #define CreateString(str) cJSON_CreateString(str)
+#define CreateNull() cJSON_CreateNull()
 #define CreateJob(obj) cJSON_CreateJob(obj)
 #define CallCommand(obj,ret) cJSON_CallCommand(obj,ret)
 #define Marshal(item) cJSON_PrintUnformatted(item)
@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
     struct sockaddr_storage client_addr;
     size = sizeof(client_addr);
     cJSON *obj, *ret, *item;
-    while (1) {
+    while (True) {
         // Accept client connection
         if ((client_fd = accept(sd, (struct sockaddr *) &client_addr, &size)) == -1) {
             perror("main: accept");
@@ -155,19 +155,24 @@ int main(int argc, char *argv[]) {
             Delete(ret);
             Delete(obj);
         }
-        
-        close(client_fd);
-
         // Check recv return value
-        if (nbytes == -1)
+        if (nbytes == -1) {
             perror("main: recv");
+            exit(EXIT_FAILURE);
+        }
 
-        if (nbytes > 0)
-            break;
+        if (close(client_fd) == -1) {
+            perror("main: close(client_fd)");
+            exit(EXIT_FAILURE);
+        }
     }
     
     // Clean up and exit
-    close(sd);
+    if (close(sd) == -1) {
+        perror("main: close(sd)");
+        exit(EXIT_FAILURE);
+    }
+
     free_worker(worker);
     if (job) free_job(job);
     exit(EXIT_SUCCESS);
@@ -189,8 +194,8 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
     // Get job status
     else if (strcmp(command,"get_job_status") == 0) {
         if (job == NULL) {
-            item = CreateString("missing job");
-            AddItem(ret,"error",item);
+            item = CreateNull();
+            AddItem(ret,"job_status",item);
         } else {
             item = CreateNumber(job->status);
             AddItem(ret,"job_status",item);
