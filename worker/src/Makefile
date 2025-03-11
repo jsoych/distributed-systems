@@ -32,10 +32,6 @@ task.o: task.h task.c
 cJSON.o: cJSON.h cJSON.c
 	$(CC) $(CFLAGS) -c cJSON.c
 
-test: test.py
-	./worker 3 debug
-	$(PYTHON) test.py
-
 .PHONY: clean
 clean:
 	rm -f *.o worker
