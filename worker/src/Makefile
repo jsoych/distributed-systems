@@ -5,17 +5,20 @@ BUILD_DIR := .
 
 OBJS := main.o worker.o job.o task.o cJSON.o
 
-ifeq ($(uname),Darwin)
+ifeq ($(shell uname),Darwin)
 	CC := clang
-	PYTHON := conda run -n pyoneer python
+	BIN := /Users/leejahsprock/pyoneer/bin
 endif
 
-ifeq ($(uname),Linux)
+ifeq ($(shell uname),Linux)
 	CC := gcc
+	BIN := /usr/pyoneer/bin
 endif
 
 worker: $(OBJS)
 	$(CC) $(CFLAGS) $^ -o worker
+	mkdir -p $(BIN)
+	mv worker $(BIN)
 
 main.o: worker.h cJSON.h main.c
 	$(CC) $(CFLAGS) -c main.c

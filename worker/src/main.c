@@ -73,7 +73,7 @@ int main(int argc, char *argv[]) {
     // Create the worker socket path
     len = sizeof(path);
     #ifdef __APPLE__
-    s = stpncpy(s, "/var/run/pyoneer/", len-1);
+    s = stpncpy(s, "/Users/leejahsprock/run/pyoneer/", len-1);
     #elif __linux__
     s = stpcpy(s, "/run/pyoneer/", len-1);
     #endif
