@@ -48,16 +48,34 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // Debugging level defaults to info
+    // Create logging file and set logging level
+    int logfd;
     if (strcmp(argv[2],"debug") == 0) {
         log_level = debug;
+        #ifdef __APPLE__
+        logfd = STDOUT_FILENO;
+        #elif __linux__
+        char *log;
+        log = buf;
+        buf = stpcpy(buf,"/var/log/pyoneer/worker");
+        buf = stpcpy(buf,argv[1]);
+        buf = stpcpy(buf,".log");
+        if ((logfd = open(log, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
+            perror("main: open");
+            exit(EXIT_FAILURE);
+        }
+
+        // Reset buffer
+        buf = log;
+        memset(buf,'\0',BUFFLEN);
+        #endif
+
     } else {
         log_level = info;
     }
 
-    // Create worker with id
+    // Create worker
     worker = create_worker((int) strtol(argv[1],NULL,0));
-
     job = NULL;
 
     // Create a local socket
@@ -73,7 +91,7 @@ int main(int argc, char *argv[]) {
     // Create the worker socket path
     len = sizeof(path);
     #ifdef __APPLE__
-    s = stpncpy(s, "/var/run/pyoneer/", len-1);
+    s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
     #elif __linux__
     s = stpcpy(s, "/run/pyoneer/", len-1);
     #endif
@@ -83,7 +101,7 @@ int main(int argc, char *argv[]) {
     *s = '\0';
 
     if (log_level == debug)
-        fprintf(stdout,"%s\n",path);
+        dprintf(logfd,"%s\n",path);
     
     strcpy(addr.sun_path,path);
 
@@ -155,9 +173,8 @@ int main(int argc, char *argv[]) {
             strncpy(buf, Marshal(ret), BUFFLEN);
 
             // Add debugging info to the logging file
-            if (log_level == debug) {
-                fprintf(stdout,"%s\n",buf);
-            }
+            if (log_level == debug)
+                dprintf(logfd,"%s\n",buf);
 
             // Send return object to client
             if (send(client_fd, buf, strnlen(buf,BUFFLEN), 0) == -1)
