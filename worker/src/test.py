@@ -6,7 +6,7 @@ import unittest
 from status_codes import *
 
 # Define global constants
-WORKER = os.getenv('WORKER_SOCKET', '/var/run/pyoneer/worker3.socket')
+WORKER = os.getenv('WORKER_SOCKET', '/Users/leejahsprock/pyoneer/run/worker3.socket')
 BUFFSIZE = 1024
 
 # Get worker and job status codes

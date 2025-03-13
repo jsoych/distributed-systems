@@ -1,7 +1,10 @@
-import os
-import cmd
-import json
-import socket
+import os, socket, sys
+import cmd, json
+import logging, traceback
+
+logger = logging.getLogger()
+logger.addHandler(logging.StreamHandler(sys.stdout))
+logger.setLevel(os.getenv('LOG_LEVEL',logging.INFO))
 
 class PyoneerShell(cmd.Cmd):
     intro = 'Welcome to the worker shell. Type help or ? to list commands.\n'
@@ -10,9 +13,11 @@ class PyoneerShell(cmd.Cmd):
 
     def preloop(self):
         if (os.uname().sysname == 'Darwin'):
-            self.workers_dir = '/Users/leejahsprock/run/pyoneer'
+            self.workers_dir = '/Users/leejahsprock/pyoneer/run'
+            self.bin = '/Users/leejahsprock/pyoneer/bin'
         elif (os.uname().sysname == 'Linux'):
             self.workers_dir = '/run/pyoneer'
+            self.bin = '/usr/pyoneer/bin'
         self.sock = None
 
     def postloop(self):
@@ -35,7 +40,10 @@ class PyoneerShell(cmd.Cmd):
                     )
                 )
             except FileNotFoundError as e:
-                print(f'{e.strerror}: {e.filename}')
+                logger.error(f'{e.strerror}: {e.filename}')
+                return 'help'
+            except Exception as e:
+                logger.error(traceback.format_exc())
                 return 'help'
             
         return ' '.join(tokens)
@@ -53,15 +61,17 @@ class PyoneerShell(cmd.Cmd):
         if (self.sock):
             self.sock.close()
 
-    # Worker commands
-    def do_get_status(self,line):
+    # ----- Worker Commands -----
+    def do_get_status(self,id):
         ''' Gets the worker status. '''
         obj = json.dumps({'command': 'get_status'})
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
-        print(res.decode())
+        obj = json.loads(res)
+        logger.info(f'status: {obj['status']}')
+        logger.debug(obj['debug'])
 
-    def do_run_job(self,line):
+    def do_run_job(self,line:str):
         ''' Runs the job on the worker. '''
         obj = {'command': 'run_job'}
         tokens = line.split()
@@ -72,25 +82,25 @@ class PyoneerShell(cmd.Cmd):
         obj = json.dumps(obj)
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
-        print(res.decode())
+        logger.info(res.decode())
 
-    def do_start(self,id):
+    def do_start(self):
         ''' Starts the job. '''
         obj = json.dumps({'command': 'start'})
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
-        print(res.decode())
+        logger.info(res.decode())
 
-    def do_stop(self,id):
+    def do_stop(self):
         ''' Stop the job. '''
         obj = json.dumps({'command': 'stop'})
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
-        print(res.decode())
+        logger.info(res.decode())
 
     def do_quit(self,line):
         ''' Quits the commandline interface. '''
-        print('Quitting Time')
+        logger.info('Quitting Time!')
         self.close()
         return True
 
