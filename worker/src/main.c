@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
@@ -55,18 +56,17 @@ int main(int argc, char *argv[]) {
         #ifdef __APPLE__
         logfd = STDOUT_FILENO;
         #elif __linux__
-        char *log;
-        log = buf;
-        buf = stpcpy(buf,"/var/log/pyoneer/worker");
-        buf = stpcpy(buf,argv[1]);
-        buf = stpcpy(buf,".log");
+        char *log, *b;
+        b = (log = buf);
+        b = stpcpy(b,"/var/log/pyoneer/worker");
+        b = stpcpy(b,argv[1]);
+        b = stpcpy(b,".log");
         if ((logfd = open(log, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
             perror("main: open");
             exit(EXIT_FAILURE);
         }
 
         // Reset buffer
-        buf = log;
         memset(buf,'\0',BUFFLEN);
         #endif
 
@@ -93,7 +93,7 @@ int main(int argc, char *argv[]) {
     #ifdef __APPLE__
     s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
     #elif __linux__
-    s = stpcpy(s, "/run/pyoneer/", len-1);
+    s = stpncpy(s, "/run/pyoneer/", len-1);
     #endif
     s = stpncpy(s, "worker", len-1);
     s = stpncpy(s, argv[1], len-1);
@@ -200,6 +200,10 @@ int main(int argc, char *argv[]) {
         perror("main: close(sd)");
         exit(EXIT_FAILURE);
     }
+
+#if __linux__
+    close(logfd);
+#endif
 
     free_worker(worker);
     if (job) free_job(job);

@@ -22,7 +22,7 @@ endif
 worker: $(objs)
 	$(cc) $(cflags) $^ -o worker
 
-main.o: worker.h cjson.h main.c
+main.o: worker.h cJSON.h main.c
 	$(cc) $(cflags) -c main.c
 
 worker.o: worker.h job.h task.h worker.c
