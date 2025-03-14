@@ -69,7 +69,8 @@ class PyoneerShell(cmd.Cmd):
         res = self.sock.recv(1024)
         obj = json.loads(res)
         logger.info(f'status: {obj['status']}')
-        logger.debug(obj['debug'])
+        if (obj.get('debug')):
+            logger.debug(obj['debug'])
 
     def do_run_job(self,line:str):
         ''' Runs the job on the worker. '''
@@ -83,6 +84,7 @@ class PyoneerShell(cmd.Cmd):
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
         logger.info(res.decode())
+
 
     def do_start(self):
         ''' Starts the job. '''

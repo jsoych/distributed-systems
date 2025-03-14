@@ -52,9 +52,9 @@ int main(int argc, char *argv[]) {
     int logfd;
     if (strcmp(argv[2],"debug") == 0) {
         log_level = debug;
-        #ifdef __APPLE__
+#ifdef __APPLE__
         logfd = STDOUT_FILENO;
-        #elif __linux__
+#elif __linux__
         char *log;
         log = buf;
         buf = stpcpy(buf,"/var/log/pyoneer/worker");
@@ -68,11 +68,9 @@ int main(int argc, char *argv[]) {
         // Reset buffer
         buf = log;
         memset(buf,'\0',BUFFLEN);
-        #endif
-
-    } else {
+#endif
+    } else
         log_level = info;
-    }
 
     // Create worker
     worker = create_worker((int) strtol(argv[1],NULL,0));
