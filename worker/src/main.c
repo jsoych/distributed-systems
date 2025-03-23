@@ -53,14 +53,15 @@ int main(int argc, char *argv[]) {
     int logfd;
     if (strcmp(argv[2],"debug") == 0) {
         log_level = debug;
-        #ifdef __APPLE__
+#ifdef __APPLE__
         logfd = STDOUT_FILENO;
-        #elif __linux__
+#elif __linux__
         char *log, *b;
         b = (log = buf);
         b = stpcpy(b,"/var/log/pyoneer/worker");
         b = stpcpy(b,argv[1]);
         b = stpcpy(b,".log");
+      
         if ((logfd = open(log, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
             perror("main: open");
             exit(EXIT_FAILURE);
@@ -68,11 +69,9 @@ int main(int argc, char *argv[]) {
 
         // Reset buffer
         memset(buf,'\0',BUFFLEN);
-        #endif
-
-    } else {
+#endif
+    } else
         log_level = info;
-    }
 
     // Create worker
     worker = create_worker((int) strtol(argv[1],NULL,0));
@@ -90,11 +89,11 @@ int main(int argc, char *argv[]) {
 
     // Create the worker socket path
     len = sizeof(path);
-    #ifdef __APPLE__
+#ifdef __APPLE__
     s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
-    #elif __linux__
-    s = stpncpy(s, "/run/pyoneer/", len-1);
-    #endif
+#elif __linux__
+    s = stpcpy(s, "/run/pyoneer/", len-1);
+#endif
     s = stpncpy(s, "worker", len-1);
     s = stpncpy(s, argv[1], len-1);
     s = stpncpy(s, ".socket", len-1);
