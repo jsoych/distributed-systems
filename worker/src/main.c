@@ -88,11 +88,11 @@ int main(int argc, char *argv[]) {
 
     // Create the worker socket path
     len = sizeof(path);
-    #ifdef __APPLE__
+#ifdef __APPLE__
     s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
-    #elif __linux__
+#elif __linux__
     s = stpcpy(s, "/run/pyoneer/", len-1);
-    #endif
+#endif
     s = stpncpy(s, "worker", len-1);
     s = stpncpy(s, argv[1], len-1);
     s = stpncpy(s, ".socket", len-1);
