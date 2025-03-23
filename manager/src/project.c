@@ -82,12 +82,22 @@ void add_job(Project *proj, Job *job, int ids[], int len) {
     new_node->deps = deps;
     new_node->len = len;
     
-
     // Add new_node to jobs table
-    ent = proj->jobs_table[job->id % MAXLEN];
-    if (ent == NULL)
-        proj->jobs_table[job->id % MAXLEN] = new_node;
+    new_node->next_ent = proj->jobs_table[job->id % MAXLEN];
+    proj->jobs_table[job->id % MAXLEN] = new_node;
+
+    // Add new_node to the jobs list
+    if (proj->len == 0) {
+        new_node->next = NULL;
+        proj->jobs_list->tail = new_node;
+    } else {
+        proj->jobs_list->head->prev = new_node;
+    }
+    new_node->prev = NULL;
+    new_node->next = proj->jobs_list->head;
+
     proj->len++;
+    return;
 }
 
 /* get_node: Gets and returns the node by its job id. Otherwise, NULL. */
@@ -112,6 +122,8 @@ void remove_job(Project *proj, int id) {
         proj->jobs_list->head = NULL;
         proj->jobs_list->tail = NULL;
         proj->jobs_table[id % MAXLEN] = NULL;
+        free_job(node->job);
+        free(node->deps);
         free(node);
         return;
     }
@@ -138,6 +150,8 @@ void remove_job(Project *proj, int id) {
         node->next->prev = node->prev;
     }
     
+    free_job(node->job);
+    free(node->deps);
     free(node);
     return;
 }
@@ -258,8 +272,8 @@ static int pop(struct deque *d) {
     return ret;
 }
 
-/* find: Searches for the value and returns 0, if the value is in the
-    dequeue. Otherwise, it returns -1. */
+/* find: Searches for the value and returns 1, if the value is in the
+    dequeue. Otherwise, it returns 0. */
 static int find(struct deque *d, int v) {
     struct node *curr = d->head;
     while (curr) {
@@ -300,7 +314,9 @@ static void free_table(struct table *t) {
 
 // insert: Inserts a new entry to the hash table.
 static void insert(struct table *t, int v) {
-    append(t->buckets[v % MAXLEN],v);
+    if (find(t->buckets[v % MAXLEN],v) == 0)
+        append(t->buckets[v % MAXLEN],v);
+    return;
 }
 
 /* delete: Deletes the value from the table and returns the number of
@@ -500,8 +516,9 @@ static int in_path(struct path *p, int v) {
     return 0;
 }
 
-/* get_cycle: Get cycle in the project starting from id. */
-static void get_cycles(struct project *proj, int id) {
+/* get_cycle: Searches for cycles in the project starting with given id
+    and returns the first cycle found. Otherwise, returns NULL. */
+static struct path *get_cycle(struct project *proj, int id) {
     ProjectNode *node = get_node(proj,id);
     if (node == NULL)
         return;
@@ -521,7 +538,7 @@ static void get_cycles(struct project *proj, int id) {
             // Trim path and create cycle
             while (path->head->val != id)
                 if (pop_vxt(path) == -1) {
-                    fprintf(stderr,"project: get_cycle: Path is empty");
+                    fprintf(stderr,"project: get_cycle: Path is empty\n");
                     exit(EXIT_FAILURE);
                 };
             add_vxt(path,id);
@@ -574,9 +591,62 @@ int audit_project(Project *proj) {
         fprintf(stderr,"project: audit_project: Warning the project is empty\n");
         return 0;
     }
-    // Check for missing jobs
 
-    // Check for cycles
+    // Check for missing jobs
+    struct deque *job_ids = create_deque();
+    struct table *deps_ids = create_table();
+    ProjectNode *curr = proj->jobs_list->head;
+
+    int i;
+    while (curr) {
+        for (i = 0; i < curr->len; i++)
+            insert(deps_ids, curr->deps[i]);
+        curr = curr->next;
+    }
+
+    curr = proj->jobs_list->head;
+    while (curr) {
+        if (search(deps_ids,curr->job->id) == 0)
+            append(job_ids,curr->job->id);
+        curr = curr->next;
+    }
+
+    if (job_ids->len > 0) {
+        // Print missing dependencies error message
+        struct node *n = job_ids->head;
+        fprintf(stderr, "project: audit_project: Missing ependencies \
+        error. The project is missing jobs %d", n->val);
+        for (n = n->next; n; n = n->next)
+            fprintf(stderr, ", %d", n->val);
+        fprintf(stderr, ".\n");
+        free_deque(job_ids);
+        free_table(deps_ids);
+        return -1;
+    }
+
+    free_deque(job_ids);
+    free_table(deps_ids);
+
+    // Check for cycle
+    struct path *cycle;
+    curr = proj->jobs_list->head;
+    while (curr) {
+        if ((cycle = get_cycle(proj,curr->job->id)) != NULL)
+            break;
+        curr = curr->next;
+    }
+
+    if (curr) {
+        // Print cycle error message
+        struct pnode *pn = cycle->head;
+        fprintf(stderr, "project: audit_project: Circular dependency \
+        error. The jobs %d", pn->val);
+        for (pn = pn->next; pn; pn = pn->next)
+            fprintf(stderr, ", %d", pn->val);
+        fprintf(stderr, " cannot form a cycle.\n");
+        free_path(cycle);
+        return -1;
+    }
 
     return 0;
 }
