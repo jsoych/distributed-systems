@@ -650,3 +650,31 @@ int audit_project(Project *proj) {
 
     return 0;
 }
+
+/* encode_project: Encodes the project with JSON. */
+cJSON *encode_project(Project *proj) {
+    cJSON *ret;
+    if ((ret = cJSON_CreateObject()) == NULL) {
+        fprintf(stderr, "project: encode_project: cJSON_CreateObject\n");
+        exit(EXIT_FAILURE);
+    }
+
+    cJSON_AddNumberToObject(ret,"id",proj->id);
+    cJSON_AddNumberToObject(ret,"status",proj->status);
+
+    cJSON *obj, *item, *job, *jobs;
+    jobs = cJSON_CreateArray();
+    for (ProjectNode *curr = proj->jobs_list; curr; curr = curr->next) {
+        if ((item = cJSON_CreateObject()) == NULL) {
+            fprintf(stderr, "project: encode_project: cJSON_CreateObject\n");
+            exit(EXIT_FAILURE);
+        }
+
+        if ((job = encode_job(curr->job)) == NULL) {
+            fprintf(stderr, "project: encode_project: encode_job\n");
+            exit(EXIT_FAILURE);
+        }
+        
+        cJSON_AddObjectToObject(item,job);
+    }
+}

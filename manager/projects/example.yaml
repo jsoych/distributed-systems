@@ -1,0 +1,15 @@
+project:
+  id: 0
+  jobs:
+  - job:
+      id: 0
+      tasks: [task.py]
+    dependencies: []
+  - job:
+      id: 1
+      tasks: [task.py, task1.py]
+    dependencies: [0]
+  - job:
+      id: 2
+      task: [task.py, bug.py]
+    dependencies: [0,1]
