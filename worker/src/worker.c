@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -209,20 +210,21 @@ static void *job_thread(void *args) {
         }
 
         if (prev == NULL) {
-            rjob->head = curr->next;
-            free(curr);
-            curr = rjob->head;
+            prev = rjob->head;
+            rjob->head = (curr = curr->next);
+            free(prev);
+            prev = NULL;
             continue;
         }
 
-        prev->next = curr->next;
-        free(curr);
-        curr = prev->next;
+        prev = curr;
+        curr = curr->next;
+        free(prev);
     }
 
     // Update job status
-    JobNode *node;
-    for (node = job->head, job->status = _JOB_COMPLETED; node; node = node->next)
+    job->status = _JOB_COMPLETED;
+    for (JobNode *node = job->head; node; node = node->next)
         if (node->status == _TASK_INCOMPLETE) {
             job->status = _JOB_INCOMPLETE;
             break;
@@ -230,6 +232,7 @@ static void *job_thread(void *args) {
     
     // Update worker status
     rjob->worker->status = _WORKER_NOT_WORKING;
+    return NULL;
 }
 
 /* run_job: Runs the job and returns 0. If the worker is workering then,
@@ -273,11 +276,11 @@ int get_status(Worker *worker, int *job_status) {
     return worker->status;
 }
 
-// start: Starts the worker and returns 0. Otherwise, start returns -1.
+/* start: Starts the worker and returns the workers status. */
 int start(Worker *worker) {
     if (worker->status == _WORKER_WORKING) {
         fprintf(stderr, "worker: start: worker is already working\n");
-        return -1;
+        return worker->status;
     }
 
     if (worker->running_job == NULL) {
@@ -286,7 +289,7 @@ int start(Worker *worker) {
     }
 
     if (worker->running_job->job->status == _JOB_COMPLETED)
-        return 0;
+        return worker->status;
 
     // Create job thread
     if (pthread_create(&worker->running_job->job_tid, NULL, job_thread,
@@ -295,16 +298,13 @@ int start(Worker *worker) {
         exit(EXIT_FAILURE);
     }
 
-    return 0;
+    return worker->status;
 }
 
-// stop: Stops the worker and its running job.
-void stop(Worker *worker) {
+/* stop: Stops the worker's running job, and returns the workers status. */
+int stop(Worker *worker) {
     if (worker->status == _WORKER_NOT_WORKING)
-        return;
-
-    if (worker->running_job == NULL)
-        return;
+        return worker->status;
 
     // Stop each running task
     RunningJobNode *node;
@@ -319,4 +319,23 @@ void stop(Worker *worker) {
         perror("worker: stop: pthread_join");
         exit(EXIT_FAILURE);
     }
+
+    return worker->status;
 }
+
+/* call_command: Calls one of the workers commands by name, and returns
+    the value of the called command. Otherwise, returns -1. */
+int call_command(Worker *worker, char *name, void *arg) {
+    if (strcmp(name,"run_job") == 0)
+        return run_job(worker,arg);
+    else if (strcmp(name,"get_status") == 0)
+        return get_status(worker,arg);
+    else if (strcmp(name,"start") == 0)
+        return start(worker);
+    else if (strcmp(name,"stop") == 0)
+        return stop(worker);
+    
+    return -1;
+}
+
+

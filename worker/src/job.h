@@ -6,6 +6,7 @@
 #define _JOB_RUNNING 1
 #define _JOB_COMPLETED 2
 
+#include "cJSON.h"
 #include "task.h"
 
 typedef struct _job_node {
@@ -23,5 +24,9 @@ typedef struct _job {
 Job *create_job(int,int);
 void free_job(Job *);
 void add_task(Job *, char *);
+size_t marshal_job(Job *, void *, size_t);
+Job *unmarshal_job(void *, size_t);
+cJSON *encode_job(Job *);
+Job *decode_job(cJSON *);
 
 #endif

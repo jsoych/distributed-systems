@@ -22,13 +22,11 @@
 #define CreateNumber(num) cJSON_CreateNumber(num)
 #define CreateString(str) cJSON_CreateString(str)
 #define CreateNull() cJSON_CreateNull()
-#define CreateJob(obj) cJSON_CreateJob(obj)
 #define CallCommand(obj,ret) cJSON_CallCommand(obj,ret)
 #define Marshal(item) cJSON_PrintUnformatted(item)
 #define Unmarshal(str) cJSON_Parse(str)
 
 // Helper functions
-Job *cJSON_CreateJob(cJSON *obj);
 void cJSON_CallCommand(cJSON *obj, cJSON *ret);
 
 // log levels
@@ -211,6 +209,8 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
     Job *new_job;
     cJSON *item;
     char *command = GetItem(obj,"command")->valuestring;
+
+    
     
     // Get worker status
     if (strcmp(command,"get_status") == 0) {
@@ -238,7 +238,7 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
 
         // Create new job
         item = GetItem(obj,"job");
-        new_job = cJSON_CreateJob(item);
+        new_job = decode_job(item);
         if (run_job(worker,new_job) == -1) {
             item = CreateString("worker is already working");
             AddItem(ret,"error",item);
@@ -288,16 +288,4 @@ void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
     }
 
     return;
-}
-
-/* cJSON_CreateJob: Creates a new job from an json object. The object
-    is expected to formatted in the following way,
-    {"id":number, "tasks":["task1","task2",...]}.*/
-Job *cJSON_CreateJob(cJSON *obj) {
-    cJSON *id = GetItem(obj,"id");
-    Job *new_job = create_job(id->valuedouble,_JOB_INCOMPLETE);
-    for (cJSON *task = GetItem(obj,"tasks")->child; task; task = task->next) {
-        add_task(new_job,task->valuestring);
-    }
-    return new_job;
 }
