@@ -23,14 +23,8 @@
 #define CreateNumber(num) cJSON_CreateNumber(num)
 #define CreateString(str) cJSON_CreateString(str)
 #define CreateNull() cJSON_CreateNull()
-#define CreateJob(obj) cJSON_CreateJob(obj)
-#define CreateProject(obj) cJSON_Project(obj)
-#define CallCommand(obj,ret) cJSON_CallCommand(obj,ret)
 #define Marshal(item) cJSON_PrintUnformatted(item)
 #define Unmarshal(str) cJSON_Parse(str)
-
-// Helper functions
-Project *cJSON_CreateProject(cJSON *obj);
 
 #define BUFFLEN 4096
 
@@ -39,7 +33,12 @@ Manager *manager;
 Project *project;
 
 int main(int argc, char *argv[]) {
-    manager = create_manager();
+    if (argc < 1) {
+        fprintf(stderr, "main: expected 1 or 2 arguments, recieved %d\n", argc-1);
+        exit(EXIT_FAILURE);
+    }
+
+    manager = create_manager(strtol(argv[1], NULL, 10));
     project = NULL;
 
     // Create a local socket
@@ -118,8 +117,11 @@ int main(int argc, char *argv[]) {
             }
             // Pass the command to the worker
             else {
-                CallCommand(obj,ret);
+                
             }
+
+            Delete(obj);
+            Delete(ret);
         }
 
     }
