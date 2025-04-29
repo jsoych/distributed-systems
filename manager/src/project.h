@@ -39,7 +39,9 @@ Project *create_project(int);
 void free_project(Project *);
 void add_job(Project *, Job *, int [], int);
 void remove_job(Project *, int);
+int get_job_status(Project *, int);
 int audit_project(Project *);
+List *schedule_jobs(Project *);
 cJSON *encode_project(Project *);
 Project *decode_project(cJSON *);
 

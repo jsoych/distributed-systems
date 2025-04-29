@@ -156,6 +156,15 @@ void remove_job(Project *proj, int id) {
     return;
 }
 
+/* get_job_status: Gets the status of the job by its id and returns it.
+    Otherwise, returns -1. */
+int get_job_status(Project *proj, int id) {
+    ProjectNode *node;
+    if ((node = get_node(proj,id)) == NULL)
+        return -1;
+    return node->job->status;
+}
+
 // deque node
 static struct node {
     int val;
