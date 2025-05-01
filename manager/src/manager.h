@@ -1,18 +1,41 @@
 #ifndef _MANAGER_H
 #define _MANAGER_H
+#define _MANAGER_NOT_BUSY 0
+#define _MANAGER_BUSY 1
 
 #include <pthread.h>
 #include "cJSON.h"
 #include "project.h"
 
-enum { _MANAGER_NOT_BUSY, _MANAGER_BUSY };
-enum { _WORKER_NOT_BUSY, _WORKER_BUSY };
+// worker status
+typedef enum {
+    worker_not_busy,
+    worker_busy
+} worker_status;
 
-struct _manager;
+// job status
+typedef enum {
+    job_not_assigned,
+    job_assigned,
+    job_running,
+    job_completed,
+    job_incomplete
+} job_status;
+
+// job structure
+typedef struct _job {
+    int id;
+    job_status status;
+} job;
+
+// Worker object
 typedef struct _worker {
     int id;
-    int status;
+    worker_status status;
+    job job;
 } Worker;
+
+struct _manager;
 
 // CrewNode
 typedef struct _crew_node {

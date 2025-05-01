@@ -4,7 +4,10 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include "json.h"
 #include "manager.h"
+
+#define BUFLEN 1024
 
 /* create_manager: Creates a new manager. */
 Manager *create_manager(int id) {
@@ -62,7 +65,9 @@ void add_worker(Manager *man, int id) {
         exit(EXIT_FAILURE);
     }
     node->worker.id = id;
-    node->worker.status = _WORKER_NOT_BUSY;
+    node->worker.status = worker_not_busy;
+    node->worker.job.id = -1;
+    node->worker.job.status = job_not_assigned;
     node->next = NULL;
     node->prev_free = NULL;
 
@@ -154,55 +159,186 @@ int get_worker_status(Manager *man, int id) {
     return ret;
 }
 
-/* worker_thread: Updates the status of the worker. */
+/* job_status_map: Maps the job status string returns its corresponding status
+    code. Otherwise, returns -1. */
+static job_status job_status_map(char *status) {
+    if (strcmp(status, "running") == 0)
+        return job_running;
+    else if (strcmp(status, "complete") == 0)
+        return job_completed;
+    else if (strcmp(status, "incomplete") == 0)
+        return job_incomplete;
+    else
+        return -1;
+}
+
+/* update_job_status: Updates the workers job status. */
+static void update_job_status(Worker *worker, job_status status) {
+    switch (status) {
+        case job_running:
+            worker->job.status = job_running;
+            break;
+        case job_completed:
+            worker->job.status = job_completed;
+            break;
+        case job_incomplete:
+            worker->job.status = job_incomplete;
+            break;
+        default:
+            fprintf(stderr, "manager: Warning: Worker job status is unknown\n");
+            break;
+    }
+    return;
+}
+
+/* worker_status_map: Maps the worker status string returns its corresponding
+    status code. Otherwise, returns -1. */
+static worker_status worker_status_map(char *status) {
+    if (strcmp(status, "not_busy") == 0)
+        return worker_not_busy;
+    else if (strcmp(status, "busy") == 0)
+        return worker_busy;
+    else
+        return -1;
+}
+
+/* update_status: Updates the workers status. */
+static void update_status(Worker *worker, worker_status status) {
+    switch (status) {
+        case worker_busy:
+            worker->status = worker_busy;
+            break;
+        case worker_not_busy:
+            worker->status = worker_not_busy;
+            break;
+        default:
+            fprintf(stderr, "manager: Warning: Worker status is unknown\n");
+            break;
+    }
+    return;
+}
+
+/* worker_socket_handler: Closes the socket. */
+static void *worker_socket_handler(void *arg) {
+    if (close(*(int *)arg) == -1) {
+        perror("manager: worker_socket_handler: close");
+        exit(EXIT_FAILURE);
+    }
+    return NULL;
+}
+
+/* worker_thread: Updates the status of the worker and its job. */
 static void *worker_thread(void *args) {
     Worker *worker = args;
-    // Create local socket
-    int len, sockfd;
-    struct sockaddr_un servaddr;
+
+    // Create unix socket
+    int sockfd;
     if ((sockfd = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("manager: worker_thread: socket");
         exit(EXIT_FAILURE);
     }
-    
-    bzero(&servaddr, sizeof(servaddr));
-    servaddr.sun_family = AF_LOCAL;
-    char id[4];
-    char *s, *path;
-    path = servaddr.sun_path;
-#ifdef __APPLE__
-    s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", sizeof(path) - 1);
-#elif __linux__
-    s = stpcpy(s, "/run/pyoneer/", sizeof(path) - 1);
-#endif
-    if ((strlen(path) + 18) > sizeof(servaddr.sun_path)) {
-        fprintf(stderr, "manager: worker_thread: path name is too long\n");
-        exit(EXIT_FAILURE);
-    }
-    s = stpcpy(s, "worker");
-    // Convert id to string
-    sprintf(id, "%d", worker->id);
-    s = stpcpy(s, id);
-    s = stpcpy(s, ".socket");
 
     // Connect to the worker
-
-    // Add close connection to cleanup handlers
-
-    while (sleep(1) == 0) {
-        // Update worker status
+    struct sockaddr_un servaddr;
+    bzero(&servaddr, sizeof(servaddr));
+    servaddr.sun_family = AF_LOCAL;
+#ifdef __APPLE__
+    snprintf(servaddr.sun_path, sizeof(servaddr.sun_path),
+        "/Users/leejahsprock/pyoneer/run/worker%d.socket", worker->id);
+#elif __linux__
+    snprintf(servaddr.sun_path, sizeof(servaddr.sun_path),
+        "/run/pyoneer/worker%d.socket", worker->id);
+#endif
+    if (connect(sockfd, &servaddr, sizeof(servaddr)) == -1) {
+        perror("manager: worker_thread: connect");
+        exit(EXIT_FAILURE);
     }
 
-    // return something
+    // Add close connection to cleanup handlers
+    pthread_cleanup_push(worker_socket_handler, &sockfd);
+
+    // Update worker status
+    int nbyte, status;
+    char buf[BUFLEN];
+    json_value *res;
+    char *get_status = "{\"command\":\"get_status\"}";
+    char *get_job_status = "{\"command\":\"get_job_status\"}";
+    while (sleep(1) == 0) {
+        // Get worker status
+        if (send(sockfd, get_status, strlen(get_status), 0) == -1) {
+            perror("manager: worker_thread: send");
+            exit(EXIT_FAILURE);
+        }
+
+        if ((nbyte = recv(sockfd, &buf, BUFLEN, 0)) == -1) {
+            perror("manager: worker_thread: recv");
+            exit(EXIT_FAILURE);
+        }
+        buf[nbyte > BUFLEN ? BUFLEN - 1 : nbyte] = '\0';
+
+        if ((res = json_parse(buf, strlen(buf))) == NULL) {
+            fprintf(stderr, "manager: worker_thread: json_parse: Unable to parse response\n");
+            exit(EXIT_FAILURE);
+        }
+        
+        for (int i = 0; i < res->u.object.length; i++) {
+            if (strcmp(res->u.object.values[i].name, "status") == 0) {
+                status = worker_status_map(res->u.object.values[i].value);
+                update_status(worker, status);
+            }
+        }
+        json_value_free(res);
+
+        if (worker->job.status == job_not_assigned)
+            continue;
+
+        // Get worker job status
+        if (send(sockfd, get_job_status, sizeof(get_job_status), 0) == -1) {
+            perror("manager: worker_thread: send");
+            exit(EXIT_FAILURE);
+        }
+
+        if ((nbyte = recv(sockfd, &buf, BUFLEN, 0)) == -1) {
+            perror("manager: worker_thread: recv");
+            exit(EXIT_FAILURE);
+        }
+        buf[nbyte > BUFLEN ? BUFLEN - 1 : nbyte] = '\0';
+
+        if ((res = json_parse(buf, strlen(buf))) == NULL) {
+            fprintf(stderr, "manager: worker_thread: json_parse: Unable to parse response\n");
+            exit(EXIT_FAILURE);
+        }
+
+        for (int i = 0; i < res->u.object.length; i++) {
+            if (strcmp(res->u.object.values[i].name, "job_status") == 0) {
+                status = job_status_map(res->u.object.values[i].value);
+                update_job_status(worker, status);
+            }
+        }
+        json_value_free(res);
+    }
+
+    pthread_cleanup_pop(0);
 }
+
+/* job_thread: Runs the job. */
+static void *job_thread(void *args) {
+    // Create unix socket
+
+    // Connect to worker
+
+    // Send command
+
+    // Check response
+
+    // Update
+}
+
 
 /* project_thread: Runs the project. */
 static void *project_thread(void *args) {
 
 }
-
-/* job_thread: Runs the job. */
-
 
 /* run_project: Runs the project and returns 0. If the manager is working
     run_project returns -1. */
