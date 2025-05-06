@@ -16,7 +16,7 @@ typedef struct _list {
     ProjectNode *tail;
 } List;
 
-// ProjectNode structure
+// ProjectNode
 typedef struct _project_node {
     Job *job;
     int *deps;
