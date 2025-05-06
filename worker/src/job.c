@@ -63,55 +63,75 @@ void add_task(Job *job, char *name) {
     job->head = new_node;
 }
 
-/* encode_job: Encodes the job into a new cJSON object. */
-cJSON *encode_job(Job *job) {
-    cJSON *obj, *item, *arr;
-    if ((obj = cJSON_CreateObject()) == NULL) {
-        fprintf(stderr, "job: encode_job: cJSON_CreateObject\n");
-        exit(EXIT_FAILURE);
-    }
-
-    cJSON_AddNumberToObject(obj,"id",job->id);
-    cJSON_AddNumberToObject(obj,"status",job->status);
-    cJSON_AddArrayToObject(obj,"jobs");
-    arr = cJSON_GetObjectItem(obj,"jobs");
+/* encode_job: Encodes the job as a JSON object. */
+json_value *encode_job(Job *job) {
+    if (job == NULL)
+        return NULL;
+    json_value *obj, *val, *arr;
+    obj = json_object_new(0);
+    val = json_integer_new(job->id);
+    arr = json_array_new(0);
+    json_object_push(obj, "id", val);
+    json_object_push(obj, "tasks", arr);
+    if (obj == NULL || val == NULL || arr == NULL)
+        goto error;
     for (JobNode *curr = job->head; curr; curr = curr->next) {
-        item = cJSON_CreateString(curr->task->name);
-        cJSON_AddItemToArray(arr,item);
+        val = json_string_new(curr->task->name);
+        json_array_push(arr, val);
+        if (val == NULL)
+            goto error;
     }
-
     return obj;
+
+    error:
+    fprintf(stderr, "job: encode_job: json-builder error\n");
+    json_value_free(obj);
+    return NULL;
 }
 
-/* decode_job: Decodes the cJSON object into a new job. */
-Job *decode_job(cJSON *obj) {
-    cJSON *item = cJSON_GetObjectItem(obj,"id");
-    Job *job = create_job(item->valuedouble,_JOB_INCOMPLETE);
-    for (item = cJSON_GetObjectItem(obj,"tasks")->child; item; item = item->next) {
-        add_task(job,item->valuestring);
+/* job_status_map: Maps strings to job status codes. */
+int job_status_map(char *status) {
+    if (strcmp(status, "not_ready") == 0)
+        return _JOB_NOT_READY;
+    else if (strcmp(status, "ready") == 0)
+        return _JOB_READY;
+    else if (strcmp(status, "running") == 0)
+        return _JOB_RUNNING;
+    else if (strcmp(status, "completed") == 0)
+        return _JOB_COMPLETED;
+    else if (strcmp(status, "incomplete") == 0)
+        return _JOB_INCOMPLETE;
+    else
+        return -1;
+}
+
+/* decode_job: Decodes the JSON object into a new job. */
+Job *decode_job(json_value *obj) {
+    if (obj == NULL) {
+        fprintf(stderr, "job: decode_job: Warning: JSON value is nil\n");
+        return NULL;
     }
-    return job;
-}
-
-/* marshal_job: Serializes the job into the buffer. */
-size_t marshal_job(Job *job, void *buf, size_t len) {
-    cJSON *obj = encode_job(job);
-    char *str = cJSON_PrintUnformatted(obj);
-    size_t nbytes = strlen(str);
-    if (nbytes > len) {
-        fprintf(stderr, "job: marshal_job: the buffer length is too small\n");
-        exit(EXIT_FAILURE);
+    if (obj->type != json_object) {
+        fprintf(stderr, "job: decode_job: Error: incorrect JSON type\n");
+        return NULL;
     }
-    strcpy(buf,str);
-    cJSON_Delete(obj);
-    free(str);
-    return nbytes;
-}
-
-/* unmarshal_job: Deserializes the buffer into a new job. */
-Job *unmarshal_job(void *buf, size_t len) {
-    cJSON *obj = cJSON_ParseWithLength(buf,len);
-    Job *job = decode_job(obj);
-    cJSON_Delete(obj);
+    int id, len;
+    json_char *status;
+    json_value *tasks;
+    // Get id, status, and tasks
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, "id") == 0)
+            id = obj->u.object.values[i].value->u.integer;
+        else if (strcmp(obj->u.object.values[i].name, "status") == 0)
+            status = obj->u.object.values[i].value->u.string.ptr;
+        else if (strcmp(obj->u.object.values[i].name, "tasks") == 0) {
+            tasks = obj->u.object.values[i].value->u.array.values;
+            len = obj->u.object.values[i].value->u.array.length;
+        }
+    }
+    Job *job = create_job(id, job_status_map(status));
+    for (int i = 0; i < len; i++) {
+        add_task(job, tasks[i].u.string.ptr);
+    }
     return job;
 }

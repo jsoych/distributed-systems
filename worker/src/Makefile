@@ -3,7 +3,7 @@ cflags = -Wall -Wextra -Wpedantic
 src_dir = .
 build_dir = .
 
-objs = main.o worker.o job.o task.o cJSON.o
+objs = main.o worker.o job.o task.o json.o json-builder.o
 
 ifeq ($(shell uname),Darwin)
 	cc = clang
@@ -22,20 +22,23 @@ endif
 worker: $(objs)
 	$(cc) $(cflags) $^ -o worker
 
-main.o: worker.h cJSON.h main.c
+main.o: worker.h json.h main.c
 	$(cc) $(cflags) -c main.c
 
 worker.o: worker.h job.h task.h worker.c
 	$(cc) $(cflags) -c worker.c
 
-job.o: job.h task.h job.c
+job.o: job.h json.h json-builder.h task.h job.c
 	$(cc) $(cflags) -c job.c
 
 task.o: task.h task.c
 	$(cc) $(cflags) -c task.c
 
-cJSON.o: cJSON.h cJSON.c
-	$(cc) $(cflags) -c cJSON.c
+json-builder: json-builder.h json.h json-builder.c
+	$(cc) $(cflags) -c json-builder.c
+
+json.o:	json.h json.c
+	$(cc) $(flags) -c json.c
 
 .phony: clean install uninstall
 
