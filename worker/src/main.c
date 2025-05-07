@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <sys/un.h>
 #include "worker.h"
+#include "json.h"
 #include "cJSON.h"
 
 #define True 1
@@ -26,16 +28,29 @@
 #define Marshal(item) cJSON_PrintUnformatted(item)
 #define Unmarshal(str) cJSON_Parse(str)
 
-// Helper functions
-void cJSON_CallCommand(cJSON *obj, cJSON *ret);
+/* json_get_value */
+json_value *json_get_value(json_value *obj, char *name) {
+    json_value *val = NULL;
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, name) == 0) {
+            val = obj->u.object.values[i].value;
+            break;
+        }
+    }
+    return val;
+}
 
 // log levels
-enum log_levels{info, debug};
-enum log_levels log_level;
+enum {
+    info,
+    debug
+};
 
-#define BUFFLEN 1024
+int logging_level;
 
-char buf[BUFFLEN];
+#define BUFLEN 1024
+char buf[BUFLEN];
+
 Worker *worker;
 Job *job;
 
@@ -46,63 +61,51 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    // Create logging file and set logging level
-    int logfd;
-    if (strcmp(argv[2],"debug") == 0) {
-        log_level = debug;
-#ifdef __APPLE__
-        logfd = STDOUT_FILENO;
-#elif __linux__
-        char *log;
-        log = buf;
-        buf = stpcpy(buf,"/var/log/pyoneer/worker");
-        buf = stpcpy(buf,argv[1]);
-        buf = stpcpy(buf,".log");
-        if ((logfd = open(log, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
-            perror("main: open");
-            exit(EXIT_FAILURE);
-        }
-
-        // Reset buffer
-        buf = log;
-        memset(buf,'\0',BUFFLEN);
-#endif
-    } else
-        log_level = info;
-
     // Create worker
-    worker = create_worker((int) strtol(argv[1],NULL,0));
+    worker = create_worker((int) strtol(argv[1], NULL, 0));
     job = NULL;
+
+    // Set logging level
+    if (strcmp(argv[2],"debug") == 0)
+        logging_level = debug;
+    else
+        logging_level = info;
+    
+    // Create logging file
+    bzero(buf, BUFLEN);
+#ifdef __APPLE__
+    sprintf(buf, "/Users/leejahsprock/pyoneer/var/log/worker%d.log", worker->id);
+#elif __linux__
+    sprintf(buf, "/var/log/pyoneer/worker%d.log", worker->id);
+#endif
+    int logfd;
+    if ((logfd = open(buf, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
+        perror("main: open");
+        exit(EXIT_FAILURE);
+    }
 
     // Create a local socket
     struct sockaddr_un addr;
-    char path[sizeof(addr.sun_path)];
-    char *s = path;
-    int len, sd;
-    socklen_t size;
-
-    memset(&addr,0,sizeof(addr));
+    bzero(&addr, sizeof(addr));
     addr.sun_family = AF_LOCAL;
-
-    // Create the worker socket path
-    len = sizeof(path);
 #ifdef __APPLE__
-    s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
+    snprintf(
+        addr.sun_path,
+        "/Users/leejahsprock/pyoneer/run/worker%d.socket",
+        worker->id,
+        sizeof(addr.sun_path)
+    );
 #elif __linux__
-    s = stpcpy(s, "/run/pyoneer/", len-1);
+    snprintf(
+        addr.sun_path,
+        "/run/pyoneer/worker%d.socket",
+        worker->id,
+        sizeof(addr.sun_path)
+    );
 #endif
-    s = stpncpy(s, "worker", len-1);
-    s = stpncpy(s, argv[1], len-1);
-    s = stpncpy(s, ".socket", len-1);
-    *s = '\0';
-
-    if (log_level == debug)
-        dprintf(logfd,"%s\n",path);
     
-    strcpy(addr.sun_path,path);
-
-    size = SUN_LEN(&addr);
-    
+    // Create unix socket
+    int sd;
     if ((sd = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
         exit(EXIT_FAILURE);
@@ -113,7 +116,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (bind(sd, (struct sockaddr *) &addr, size) == -1) {
+    if (bind(sd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("main: bind");
         exit(EXIT_FAILURE);
     }
@@ -123,61 +126,94 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int client_fd, nbytes;
     struct sockaddr_storage client_addr;
-    size = sizeof(client_addr);
-    cJSON *obj, *ret, *item;
-    while (True) {
+    socklen_t addr_len;
+    int client_fd, nbytes, status;
+    json_value *obj, *res, *val, *cmd;
+    while (1) {
         // Accept client connection
-        if ((client_fd = accept(sd, (struct sockaddr *) &client_addr, &size)) == -1) {
+        if ((client_fd = accept(sd, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
             exit(EXIT_FAILURE);
         }
 
-        while ((nbytes = recv(client_fd, buf, BUFFLEN, BUFFLEN)) > 0) {
-            buf[(nbytes >= BUFFLEN) ? BUFFLEN-1 : nbytes] = '\0';
-            obj = Unmarshal(buf);
-            ret = CreateObject();
-
-            // Check obj
-            if (IsInvalid(obj)) {
-                item = CreateString("invalid");
-                AddItem(ret,"error",item);
-            }
-            // Check if obj is a json object
-            else if (IsObject(obj) == False) {
-                item = CreateString("invalid json object");
-                AddItem(ret, "error", item);
-            } 
-            // Check if obj has a command item
-            else if (HasItem(obj,"command") == False) {
-                item = CreateString("missing command item");
-                AddItem(ret, "error", item);
-            }
-            // Pass the command to the worker
-            else {
-                CallCommand(obj,ret);
+        while ((nbytes = recv(client_fd, buf, BUFLEN, BUFLEN)) > 0) {
+            buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
+            obj = json_parse(buf, BUFLEN);
+            if (obj == NULL) {
+                dprintf(logfd, "main: json_parse: Warning: Parsed %s to NULL\n", buf);
+                continue;
             }
 
-            // Add debugging info to the return object
-            if (log_level == debug) {
-                item = CreateString(Marshal(obj));
-                AddItem(ret,"debug",item);
+            res = json_object_new(0);
+            if (res == NULL) {
+                fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
+                json_value_free(res);
+                close(client_fd);
+                goto close;
             }
 
-            // Copy the return object to buffer
-            strncpy(buf, Marshal(ret), BUFFLEN);
+            // Check object type
+            if (obj->type != json_object) {
+                val = json_string_new("invalid JSON type");
+                json_object_push(res, "error", val);
+                goto send;
+            }
 
-            // Add debugging info to the logging file
-            if (log_level == debug)
-                dprintf(logfd,"%s\n",buf);
+            // Get command
+            if ((cmd = json_get_value(obj, "command")) == NULL) {
+                val = json_string_new("missing command");
+                json_object_push(res, "error", val);
+                goto send;
+            }
 
-            // Send return object to client
-            if (send(client_fd, buf, strnlen(buf,BUFFLEN), 0) == -1)
+            // Call command
+            if (strcmp(cmd->u.string.ptr, "run_job")) {
+                if ((val = json_get_value(obj, "job")) == NULL) {
+                    val = json_string_new("missing job");
+                    json_object_push(res, "error", val);
+                    goto send;
+                }
+
+                if ((job = decode_job(val)) == NULL) {
+                    val = json_string_new("unable to decode job");
+                    json_object_push(res, "error", val);
+                    goto send;
+                }
+
+                if (run_job(worker, job) == -1) {
+                    val = json_string_new("unable to run job");
+                    json_object_push(res, "error", val);
+                    goto send;
+                }
+
+                switch (get_status(worker)) {
+                    case _WORKER_NOT_WORKING:
+                        val = json_string_new("not_working");
+                        break;
+                    case _WORKER_WORKING:
+                        val = json_string_new("working");
+                        break;
+                }
+                json_object_push(res, "status", val);
+            }
+            
+            if (logging_level == debug) {
+                json_object_push(res, "debug", obj);
+            }
+            send:
+            json_serialize(buf, res);
+            if (send(client_fd, buf, strlen(buf), 0) == -1) {
                 perror("main: send");
+                json_value_free(obj);
+                json_value_free(res);
+                close(client_fd);
+                goto close;
+            }
 
-            Delete(ret);
-            Delete(obj);
+
+            json_value_free(obj);
+            json_value_free(res);
         }
         // Check recv return value
         if (nbytes == -1) {
@@ -191,7 +227,7 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    // Clean up and exit
+    close:
     if (close(sd) == -1) {
         perror("main: close(sd)");
         exit(EXIT_FAILURE);
@@ -200,92 +236,4 @@ int main(int argc, char *argv[]) {
     free_worker(worker);
     if (job) free_job(job);
     exit(EXIT_SUCCESS);
-}
-
-/* cJSON_CallCommand: Calls one of the worker's commands and adds its
-    status to ret. If the called command includes a side effect, it adds
-    the status of the side effect to ret. */
-void cJSON_CallCommand(cJSON *obj, cJSON *ret) {
-    Job *new_job;
-    cJSON *item;
-    char *command = GetItem(obj,"command")->valuestring;
-
-    
-    
-    // Get worker status
-    if (strcmp(command,"get_status") == 0) {
-        item = CreateNumber(worker->status);
-        AddItem(ret,"status",item);
-    }
-    // Get job status
-    else if (strcmp(command,"get_job_status") == 0) {
-        if (job == NULL) {
-            item = CreateNull();
-            AddItem(ret,"job_status",item);
-        } else {
-            item = CreateNumber(job->status);
-            AddItem(ret,"job_status",item);
-        }
-    }
-    // Run Job
-    else if (strcmp(command,"run_job") == 0) {
-        // Check obj for job
-        if (HasItem(obj,"job") == False) {
-            item = CreateString("missing job spec");
-            AddItem(ret,"error",item);
-            return;
-        }
-
-        // Create new job
-        item = GetItem(obj,"job");
-        new_job = decode_job(item);
-        if (run_job(worker,new_job) == -1) {
-            item = CreateString("worker is already working");
-            AddItem(ret,"error",item);
-        } else {
-            // Replace old job with the new job
-            if (job) free_job(job);
-            job = new_job;
-
-            // Return worker and job statuses
-            item = CreateNumber(worker->status);
-            AddItem(ret,"status",item);
-            item = CreateNumber(job->status);
-            AddItem(ret,"job_status",item);
-        }
-    }
-    // Start job
-    else if (strcmp(command,"start") == 0) {
-        // Check worker status
-        if (worker->status == _WORKER_WORKING) {
-            item = CreateString("worker is already working");
-            AddItem(ret,"error",item);
-        }
-        // Start job
-        else if (start(worker) == -1) {
-            item = CreateString("no job assigned to worker");
-            AddItem(ret,"error",item);
-        }
-        // Get status
-        else {
-            item = CreateNumber(worker->status);
-            AddItem(ret,"status",item);
-            item = CreateNumber(job->status);
-            AddItem(ret,"job_status",item);
-        }
-    }
-    // Stop Job
-    else if (strcmp(command,"stop") == 0) {
-        stop(worker);
-        item = CreateNumber(worker->status);
-        AddItem(ret,"status",item);
-    }
-    // Invalid Command
-    else {
-        item = CreateString("invalid command");
-        AddItem(ret,"error",item);
-        return;
-    }
-
-    return;
 }

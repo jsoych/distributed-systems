@@ -263,17 +263,17 @@ int run_job(Worker *worker, Job *job) {
     return 0;
 }
 
-/* get_status: Returns the status of the worker. If the worker's
-    running_job attribute is set, get_status stores the status of the
-    running_job at the given job_status address. */
-int get_status(Worker *worker, int *job_status) {
-    if (job_status == NULL)
-        return worker->status;
-
-    if (worker->running_job)
-        *job_status = worker->running_job->job->status;
-
+/* get_status: Returns the status of the worker. */
+int get_status(Worker *worker) {
     return worker->status;
+}
+
+/* get_job_status: Returns the status of the running job. Otherwise,
+    returns -1. */
+int get_job_status(Worker *worker) {
+    if (worker->running_job == NULL)
+        return -1;
+    return worker->running_job->job->status;
 }
 
 /* start: Starts the worker and returns the workers status. */
@@ -322,20 +322,3 @@ int stop(Worker *worker) {
 
     return worker->status;
 }
-
-/* call_command: Calls one of the workers commands by name, and returns
-    the value of the called command. Otherwise, returns -1. */
-int call_command(Worker *worker, char *name, void *arg) {
-    if (strcmp(name,"run_job") == 0)
-        return run_job(worker,arg);
-    else if (strcmp(name,"get_status") == 0)
-        return get_status(worker,arg);
-    else if (strcmp(name,"start") == 0)
-        return start(worker);
-    else if (strcmp(name,"stop") == 0)
-        return stop(worker);
-    
-    return -1;
-}
-
-

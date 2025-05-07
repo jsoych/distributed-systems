@@ -32,10 +32,9 @@ void free_worker(Worker *);
 
 // Commands (and signals)
 int run_job(Worker *, Job *);
-int get_status(Worker *, int *);
+int get_status(Worker *);
+int get_job_status(Worker *);
 int start(Worker *);
 int stop(Worker *);
-
-int call_command(Worker *, char *, void *);
 
 #endif
