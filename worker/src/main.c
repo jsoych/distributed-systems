@@ -8,51 +8,21 @@
 #include <sys/un.h>
 #include "worker.h"
 #include "json.h"
-#include "cJSON.h"
 
-#define True 1
-#define False 0
+#define BUFLEN 1024
 
-// cJSON macros
-#define CreateObject() cJSON_CreateObject()
-#define Delete(item) cJSON_Delete(item)
-#define IsInvalid(item) cJSON_IsInvalid(item)
-#define IsObject(item) cJSON_IsObject(item)
-#define HasItem(obj,name) cJSON_HasObjectItem(obj,name)
-#define GetItem(obj,name) cJSON_GetObjectItem(obj,name)
-#define AddItem(obj,name,item) cJSON_AddItemToObject(obj,name,item)
-#define CreateNumber(num) cJSON_CreateNumber(num)
-#define CreateString(str) cJSON_CreateString(str)
-#define CreateNull() cJSON_CreateNull()
-#define CallCommand(obj,ret) cJSON_CallCommand(obj,ret)
-#define Marshal(item) cJSON_PrintUnformatted(item)
-#define Unmarshal(str) cJSON_Parse(str)
-
-/* json_get_value */
-json_value *json_get_value(json_value *obj, char *name) {
-    json_value *val = NULL;
-    for (int i = 0; i < obj->u.object.length; i++) {
-        if (strcmp(obj->u.object.values[i].name, name) == 0) {
-            val = obj->u.object.values[i].value;
-            break;
-        }
-    }
-    return val;
-}
-
-// log levels
+// Logging levels
 enum {
     info,
     debug
 };
 
-int logging_level;
+// Helper function
+json_value *json_get_value(json_value *, char *);
 
-#define BUFLEN 1024
+// Globals
 char buf[BUFLEN];
-
-Worker *worker;
-Job *job;
+int logging_level;
 
 int main(int argc, char *argv[]) {
     // Check argument
@@ -62,8 +32,8 @@ int main(int argc, char *argv[]) {
     }
 
     // Create worker
-    worker = create_worker((int) strtol(argv[1], NULL, 0));
-    job = NULL;
+    Worker *worker = create_worker((int) strtol(argv[1], NULL, 0));
+    Job *job = NULL;
 
     // Set logging level
     if (strcmp(argv[2],"debug") == 0)
@@ -128,29 +98,26 @@ int main(int argc, char *argv[]) {
 
     struct sockaddr_storage client_addr;
     socklen_t addr_len;
-    int client_fd, nbytes, status;
+    int client, nbytes, status;
     json_value *obj, *res, *val, *cmd;
     while (1) {
         // Accept client connection
-        if ((client_fd = accept(sd, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
+        if ((client = accept(sd, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
             exit(EXIT_FAILURE);
         }
 
-        while ((nbytes = recv(client_fd, buf, BUFLEN, BUFLEN)) > 0) {
+        while ((nbytes = recv(client, buf, BUFLEN, BUFLEN)) > 0) {
             buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
-            obj = json_parse(buf, BUFLEN);
-            if (obj == NULL) {
-                dprintf(logfd, "main: json_parse: Warning: Parsed %s to NULL\n", buf);
-                continue;
-            }
-
-            res = json_object_new(0);
-            if (res == NULL) {
+            if ((res == json_object_new(0)) == NULL) {
                 fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
                 json_value_free(res);
-                close(client_fd);
+                close(client);
                 goto close;
+            }
+
+            if ((obj = json_parse(buf, BUFLEN)) == NULL) {
+                goto send;
             }
 
             // Check object type
@@ -168,7 +135,7 @@ int main(int argc, char *argv[]) {
             }
 
             // Call command
-            if (strcmp(cmd->u.string.ptr, "run_job")) {
+            if (strcmp(cmd->u.string.ptr, "run_job") == 0) {
                 if ((val = json_get_value(obj, "job")) == NULL) {
                     val = json_string_new("missing job");
                     json_object_push(res, "error", val);
@@ -196,44 +163,123 @@ int main(int argc, char *argv[]) {
                         break;
                 }
                 json_object_push(res, "status", val);
+            } else if (strcmp(cmd->u.string.ptr, "get_status") == 0) {
+                switch (get_status(worker)) {
+                    case _WORKER_NOT_WORKING:
+                        val = json_string_new("not_working");
+                        break;
+                    case _WORKER_WORKING:
+                        val = json_string_new("working");
+                        break;
+                }
+                json_object_push(obj, "status", val);
+            } else if (strcmp(cmd->u.string.ptr, "get_job_status") == 0) {
+                switch (get_job_status(worker)) {
+                    case _JOB_RUNNING:
+                        val = json_string_new("running");
+                        break;
+                    case _JOB_COMPLETED:
+                        val = json_string_new("completed");
+                        break;
+                    case _JOB_INCOMPLETE:
+                        val = json_string_new("incomplete");
+                        break;
+                    default:
+                        val = json_null_new();
+                        break;
+                }
+                json_object_push(res, "job_status", val);
+            } else if (strcmp(cmd->u.string.ptr, "start") == 0) {
+                switch (start(worker)) {
+                    case _JOB_RUNNING:
+                        val = json_string_new("running");
+                        break;
+                    case _JOB_COMPLETED:
+                        val = json_string_new("completed");
+                        break;
+                    case _JOB_INCOMPLETE:
+                        val = json_string_new("incomplete");
+                        break;
+                    default:
+                        val = json_null_new();
+                        break;
+                }
+                json_object_push(res, "job_status", val);
+            } else if (strcmp(cmd->u.string.ptr, "stop") == 0) {
+                switch (stop(worker)) {
+                    case _JOB_RUNNING:
+                        val = json_string_new("running");
+                        break;
+                    case _JOB_COMPLETED:
+                        val = json_string_new("completed");
+                        break;
+                    case _JOB_INCOMPLETE:
+                        val = json_string_new("incomplete");
+                        break;
+                    default:
+                        val = json_null_new();
+                        break;
+                }
+                json_object_push(res, "job_status", val);
+            } else {
+                val = json_string_new("unknown command");
+                json_object_push(res, "error", val);
             }
-            
-            if (logging_level == debug) {
-                json_object_push(res, "debug", obj);
-            }
+
             send:
-            json_serialize(buf, res);
-            if (send(client_fd, buf, strlen(buf), 0) == -1) {
+            if (logging_level == debug) 
+                json_object_push(res, "debug", obj);
+            
+            if (json_measure(res) > BUFLEN) {
+                dprintf(logfd, "main: Error: Buffer length too small\n");
+                strcpy(buf, "{\"error\":\"API failure\"}");
+                json_value_free(res);
+            } else {
+                json_serialize(buf, res);
+                json_value_free(res);
+            }
+
+            if (send(client, buf, strlen(buf), 0) == -1) {
                 perror("main: send");
                 json_value_free(obj);
                 json_value_free(res);
-                close(client_fd);
+                close(client);
                 goto close;
             }
-
-
             json_value_free(obj);
-            json_value_free(res);
         }
+
         // Check recv return value
         if (nbytes == -1) {
             perror("main: recv");
             exit(EXIT_FAILURE);
         }
 
-        if (close(client_fd) == -1) {
-            perror("main: close(client_fd)");
+        if (close(client) == -1) {
+            perror("main: client: close");
             exit(EXIT_FAILURE);
         }
     }
     
     close:
     if (close(sd) == -1) {
-        perror("main: close(sd)");
+        perror("main: server: close");
         exit(EXIT_FAILURE);
     }
 
     free_worker(worker);
-    if (job) free_job(job);
+    free_job(job);
     exit(EXIT_SUCCESS);
+}
+
+/* json_get_value */
+json_value *json_get_value(json_value *obj, char *name) {
+    json_value *val = NULL;
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, name) == 0) {
+            val = obj->u.object.values[i].value;
+            break;
+        }
+    }
+    return val;
 }

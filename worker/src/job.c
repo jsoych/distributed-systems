@@ -10,10 +10,8 @@ static JobNode *create_job_node(Task *task) {
         perror("job: create_job_node: malloc");
         exit(EXIT_FAILURE);
     }
-
     job_node->status = _TASK_INCOMPLETE;
     job_node->task = task;
-
     return job_node;
 }
 
@@ -30,17 +28,16 @@ Job *create_job(int id,int status) {
         perror("job: create_job: malloc");
         exit(EXIT_FAILURE);
     }
-
     job->id = id;
     job->status = status;
     job->head = NULL;
-
     return job;
 }
 
 /* free_job: Frees the memory allocated to the job. */
 void free_job(Job *job) {
-    // Free each job node
+    if (job == NULL)
+        return;
     JobNode *curr, *prev;
     curr = job->head;
     while (curr) {
@@ -48,19 +45,17 @@ void free_job(Job *job) {
         curr = curr->next;
         free_job_node(prev);
     }
-
     free(job);
+    return;
 }
 
 /* add_task: Adds a task to the job. */
 void add_task(Job *job, char *name) {
     Task *task = create_task(name);
-
     JobNode *new_node = create_job_node(task);
-
-    // Add new node to the job
     new_node->next = job->head;
     job->head = new_node;
+    return;
 }
 
 /* encode_job: Encodes the job as a JSON object. */
