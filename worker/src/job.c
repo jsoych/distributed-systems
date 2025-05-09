@@ -60,32 +60,28 @@ void add_task(Job *job, char *name) {
 
 /* encode_job: Encodes the job as a JSON object. */
 json_value *encode_job(Job *job) {
-    if (job == NULL)
-        return NULL;
     json_value *obj, *val, *arr;
-    obj = json_object_new(0);
+    if ((obj = json_object_new(0)) == NULL) {
+        fprintf(stderr, "job: encode_job: json_object_new: Unable to create new object\n");
+        exit(EXIT_FAILURE);
+    }
     val = json_integer_new(job->id);
-    arr = json_array_new(0);
     json_object_push(obj, "id", val);
-    json_object_push(obj, "tasks", arr);
-    if (obj == NULL || val == NULL || arr == NULL)
-        goto error;
+
+    if ((arr = json_array_new(0)) == NULL) {
+        fprintf(stderr, "job: encode_job: json_array_new: Unable to create new array\n");
+        exit(EXIT_FAILURE);
+    }
     for (JobNode *curr = job->head; curr; curr = curr->next) {
         val = json_string_new(curr->task->name);
         json_array_push(arr, val);
-        if (val == NULL)
-            goto error;
     }
+    json_object_push(obj, "tasks", arr);
     return obj;
-
-    error:
-    fprintf(stderr, "job: encode_job: json-builder error\n");
-    json_value_free(obj);
-    return NULL;
 }
 
 /* job_status_map: Maps strings to job status codes. */
-int job_status_map(char *status) {
+static int job_status_map(char *status) {
     if (strcmp(status, "not_ready") == 0)
         return _JOB_NOT_READY;
     else if (strcmp(status, "ready") == 0)
@@ -103,7 +99,7 @@ int job_status_map(char *status) {
 /* decode_job: Decodes the JSON object into a new job. */
 Job *decode_job(json_value *obj) {
     if (obj == NULL) {
-        fprintf(stderr, "job: decode_job: Warning: JSON value is nil\n");
+        fprintf(stderr, "job: decode_job: Warning: JSON value is null\n");
         return NULL;
     }
     if (obj->type != json_object) {
@@ -112,7 +108,7 @@ Job *decode_job(json_value *obj) {
     }
     int id, len;
     json_char *status;
-    json_value *tasks;
+    json_value **tasks;
     // Get id, status, and tasks
     for (int i = 0; i < obj->u.object.length; i++) {
         if (strcmp(obj->u.object.values[i].name, "id") == 0)
@@ -126,7 +122,7 @@ Job *decode_job(json_value *obj) {
     }
     Job *job = create_job(id, job_status_map(status));
     for (int i = 0; i < len; i++) {
-        add_task(job, tasks[i].u.string.ptr);
+        add_task(job, tasks[i]->u.string.ptr);
     }
     return job;
 }

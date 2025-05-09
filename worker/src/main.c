@@ -17,7 +17,9 @@ enum {
     debug
 };
 
-// Helper function
+// Helper functions
+json_value *worker_status_map(int);
+json_value *job_status_map(int);
 json_value *json_get_value(json_value *, char *);
 
 // Globals
@@ -61,9 +63,9 @@ int main(int argc, char *argv[]) {
 #ifdef __APPLE__
     snprintf(
         addr.sun_path,
+        sizeof(addr.sun_path),
         "/Users/leejahsprock/pyoneer/run/worker%d.socket",
-        worker->id,
-        sizeof(addr.sun_path)
+        worker->id
     );
 #elif __linux__
     snprintf(
@@ -98,8 +100,11 @@ int main(int argc, char *argv[]) {
 
     struct sockaddr_storage client_addr;
     socklen_t addr_len;
-    int client, nbytes, status;
+    int client, nbytes;
     json_value *obj, *res, *val, *cmd;
+    json_settings settings;
+    settings.value_extra = json_builder_extra;
+    char error[128];
     while (1) {
         // Accept client connection
         if ((client = accept(sd, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
@@ -109,14 +114,14 @@ int main(int argc, char *argv[]) {
 
         while ((nbytes = recv(client, buf, BUFLEN, BUFLEN)) > 0) {
             buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
-            if ((res == json_object_new(0)) == NULL) {
-                fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
-                json_value_free(res);
+            if ((res = json_object_new(0)) == NULL) {
+                dprintf(logfd, "main: json_object_new: Error: Unable to create new JSON object\n");
                 close(client);
                 goto close;
             }
 
-            if ((obj = json_parse(buf, BUFLEN)) == NULL) {
+            if ((obj = json_parse_ex(&settings, buf, BUFLEN, error)) == NULL) {
+                obj = json_null_new();
                 goto send;
             }
 
@@ -134,7 +139,8 @@ int main(int argc, char *argv[]) {
                 goto send;
             }
 
-            // Call command
+            // Call worker command
+            // run_job
             if (strcmp(cmd->u.string.ptr, "run_job") == 0) {
                 if ((val = json_get_value(obj, "job")) == NULL) {
                     val = json_string_new("missing job");
@@ -153,100 +159,60 @@ int main(int argc, char *argv[]) {
                     json_object_push(res, "error", val);
                     goto send;
                 }
-
-                switch (get_status(worker)) {
-                    case _WORKER_NOT_WORKING:
-                        val = json_string_new("not_working");
-                        break;
-                    case _WORKER_WORKING:
-                        val = json_string_new("working");
-                        break;
-                }
+                val = worker_status_map(get_status((worker)));
                 json_object_push(res, "status", val);
-            } else if (strcmp(cmd->u.string.ptr, "get_status") == 0) {
-                switch (get_status(worker)) {
-                    case _WORKER_NOT_WORKING:
-                        val = json_string_new("not_working");
-                        break;
-                    case _WORKER_WORKING:
-                        val = json_string_new("working");
-                        break;
-                }
-                json_object_push(obj, "status", val);
-            } else if (strcmp(cmd->u.string.ptr, "get_job_status") == 0) {
-                switch (get_job_status(worker)) {
-                    case _JOB_RUNNING:
-                        val = json_string_new("running");
-                        break;
-                    case _JOB_COMPLETED:
-                        val = json_string_new("completed");
-                        break;
-                    case _JOB_INCOMPLETE:
-                        val = json_string_new("incomplete");
-                        break;
-                    default:
-                        val = json_null_new();
-                        break;
-                }
+
+                val = job_status_map(get_job_status(worker));
                 json_object_push(res, "job_status", val);
-            } else if (strcmp(cmd->u.string.ptr, "start") == 0) {
-                switch (start(worker)) {
-                    case _JOB_RUNNING:
-                        val = json_string_new("running");
-                        break;
-                    case _JOB_COMPLETED:
-                        val = json_string_new("completed");
-                        break;
-                    case _JOB_INCOMPLETE:
-                        val = json_string_new("incomplete");
-                        break;
-                    default:
-                        val = json_null_new();
-                        break;
-                }
+            }
+            // get_status
+            else if (strcmp(cmd->u.string.ptr, "get_status") == 0) {
+                val = worker_status_map(get_status(worker));
+                json_object_push(res, "status", val);
+            } 
+            // get_job_status
+            else if (strcmp(cmd->u.string.ptr, "get_job_status") == 0) {
+                val = job_status_map(get_job_status(worker));
                 json_object_push(res, "job_status", val);
-            } else if (strcmp(cmd->u.string.ptr, "stop") == 0) {
-                switch (stop(worker)) {
-                    case _JOB_RUNNING:
-                        val = json_string_new("running");
-                        break;
-                    case _JOB_COMPLETED:
-                        val = json_string_new("completed");
-                        break;
-                    case _JOB_INCOMPLETE:
-                        val = json_string_new("incomplete");
-                        break;
-                    default:
-                        val = json_null_new();
-                        break;
-                }
+            } 
+            // start
+            else if (strcmp(cmd->u.string.ptr, "start") == 0) {
+                val = job_status_map(start(worker));
                 json_object_push(res, "job_status", val);
-            } else {
+            } 
+            // start
+            else if (strcmp(cmd->u.string.ptr, "stop") == 0) {
+                val = job_status_map(stop(worker));
+                json_object_push(res, "job_status", val);
+            } 
+            // Unknown command
+            else {
                 val = json_string_new("unknown command");
                 json_object_push(res, "error", val);
             }
 
             send:
-            if (logging_level == debug) 
+            if (logging_level == debug)
                 json_object_push(res, "debug", obj);
             
             if (json_measure(res) > BUFLEN) {
                 dprintf(logfd, "main: Error: Buffer length too small\n");
                 strcpy(buf, "{\"error\":\"API failure\"}");
-                json_value_free(res);
             } else {
                 json_serialize(buf, res);
-                json_value_free(res);
             }
 
             if (send(client, buf, strlen(buf), 0) == -1) {
                 perror("main: send");
-                json_value_free(obj);
-                json_value_free(res);
+                json_builder_free(res);
+                json_builder_free(obj);
                 close(client);
                 goto close;
             }
-            json_value_free(obj);
+
+            if (logging_level != debug)
+                json_builder_free(obj);
+            json_builder_free(res);
         }
 
         // Check recv return value
@@ -270,6 +236,42 @@ int main(int argc, char *argv[]) {
     free_worker(worker);
     free_job(job);
     exit(EXIT_SUCCESS);
+}
+
+/* worker_status_map: Maps worker status codes to its corresponding
+    JSON value. */
+json_value *worker_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _WORKER_NOT_WORKING:
+            val = json_string_new("not_working");
+            break;
+        case _WORKER_WORKING:
+            val = json_string_new("working");
+            break;
+    }
+    return val;
+}
+
+/* job_status_map: Maps job status codes to its corresponding
+    JSON value. */
+json_value *job_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _JOB_RUNNING:
+            val = json_string_new("running");
+            break;
+        case _JOB_COMPLETED:
+            val = json_string_new("completed");
+            break;
+        case _JOB_INCOMPLETE:
+            val = json_string_new("incomplete");
+            break;
+        default:
+            val = json_null_new();
+            break;
+    }
+    return val;
 }
 
 /* json_get_value */
