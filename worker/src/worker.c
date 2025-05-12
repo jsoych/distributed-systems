@@ -279,10 +279,8 @@ int get_job_status(Worker *worker) {
 
 /* start: Starts the worker and returns the job status. */
 int start(Worker *worker) {
-    if (worker->status == _WORKER_WORKING) {
-        fprintf(stderr, "worker: start: Warning: Worker is already working\n");
+    if (worker->status == _WORKER_WORKING)
         return get_job_status(worker);
-    }
 
     if (get_job_status(worker) == -1) {
         fprintf(stderr, "worker: start: Warning: No job assigned\n");

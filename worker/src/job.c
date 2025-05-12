@@ -36,8 +36,6 @@ Job *create_job(int id,int status) {
 
 /* free_job: Frees the memory allocated to the job. */
 void free_job(Job *job) {
-    if (job == NULL)
-        return;
     JobNode *curr, *prev;
     curr = job->head;
     while (curr) {

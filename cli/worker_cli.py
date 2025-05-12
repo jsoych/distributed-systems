@@ -29,7 +29,7 @@ class PyoneerShell(cmd.Cmd):
             return line
 
         tokens = line.split()
-        if (tokens[0] in ['get_status','run_job','start','stop']):
+        if (tokens[0] in ['get_status','get_job_status','run_job','start','stop']):
             # Connect to worker
             self.sock = socket.socket(socket.AF_UNIX)
             try:
@@ -62,7 +62,7 @@ class PyoneerShell(cmd.Cmd):
             self.sock.close()
 
     # ----- Worker Commands -----
-    def do_get_status(self,id):
+    def do_get_status(self, id):
         ''' Gets the worker status. '''
         obj = json.dumps({'command': 'get_status'})
         self.sock.send(obj.encode())
@@ -72,7 +72,17 @@ class PyoneerShell(cmd.Cmd):
         if (obj.get('debug')):
             logger.debug(obj['debug'])
 
-    def do_run_job(self,line:str):
+    def do_get_job_status(self, id):
+        ''' Gets the job status '''
+        obj = json.dumps({'command': 'get_job_status'})
+        self.sock.send(obj.encode())
+        res = self.sock.recv(1024)
+        obj = json.loads(res)
+        logger.info(f'job_status: {obj['job_status']}')
+        if (obj.get('debug')):
+            logger.debug(obj['debug'])
+
+    def do_run_job(self, line:str):
         ''' Runs the job on the worker. '''
         obj = {'command': 'run_job'}
         tokens = line.split()
@@ -85,22 +95,21 @@ class PyoneerShell(cmd.Cmd):
         res = self.sock.recv(1024)
         logger.info(res.decode())
 
-
-    def do_start(self):
+    def do_start(self, id):
         ''' Starts the job. '''
         obj = json.dumps({'command': 'start'})
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
         logger.info(res.decode())
 
-    def do_stop(self):
+    def do_stop(self, id):
         ''' Stop the job. '''
         obj = json.dumps({'command': 'stop'})
         self.sock.send(obj.encode())
         res = self.sock.recv(1024)
         logger.info(res.decode())
 
-    def do_quit(self,line):
+    def do_quit(self, line):
         ''' Quits the commandline interface. '''
         logger.info('Quitting Time!')
         self.close()

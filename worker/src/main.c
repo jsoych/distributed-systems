@@ -77,23 +77,23 @@ int main(int argc, char *argv[]) {
 #endif
     
     // Create unix socket
-    int sd;
-    if ((sd = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
+    int serv;
+    if ((serv = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
         exit(EXIT_FAILURE);
     }
 
-    if (unlink(addr.sun_path) == 1) {
+    if (unlink(addr.sun_path) == -1) {
         perror("main: unlink");
         exit(EXIT_FAILURE);
     }
 
-    if (bind(sd, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
+    if (bind(serv, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("main: bind");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(sd,1) == -1) {
+    if (listen(serv, 1) == -1) {
         perror("main: listen");
         exit(EXIT_FAILURE);
     }
@@ -107,7 +107,7 @@ int main(int argc, char *argv[]) {
     char error[128];
     while (1) {
         // Accept client connection
-        if ((client = accept(sd, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
+        if ((client = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
             exit(EXIT_FAILURE);
         }
@@ -117,7 +117,8 @@ int main(int argc, char *argv[]) {
             if ((res = json_object_new(0)) == NULL) {
                 dprintf(logfd, "main: json_object_new: Error: Unable to create new JSON object\n");
                 close(client);
-                goto close;
+                close(serv);
+                exit(EXIT_FAILURE);
             }
 
             if ((obj = json_parse_ex(&settings, buf, BUFLEN, error)) == NULL) {
@@ -206,8 +207,7 @@ int main(int argc, char *argv[]) {
                 perror("main: send");
                 json_builder_free(res);
                 json_builder_free(obj);
-                close(client);
-                goto close;
+                exit(EXIT_FAILURE);
             }
 
             if (logging_level != debug)
@@ -227,14 +227,14 @@ int main(int argc, char *argv[]) {
         }
     }
     
-    close:
-    if (close(sd) == -1) {
+    if (close(serv) == -1) {
         perror("main: server: close");
         exit(EXIT_FAILURE);
     }
 
     free_worker(worker);
-    free_job(job);
+    if (job != NULL)
+        free_job(job);
     exit(EXIT_SUCCESS);
 }
 
