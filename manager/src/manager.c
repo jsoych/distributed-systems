@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #include "json.h"
+#include "json-builder.h"
 #include "manager.h"
 
 #define BUFLEN 1024
@@ -31,6 +32,8 @@ Manager *create_manager(int id) {
 void free_manager(Manager *man) {
     int old_errno;
     // Free running project memory
+
+    // Free crew resources
 
     // Free workers
     crew_node *curr = man->crew.workers;
@@ -102,13 +105,6 @@ void add_worker(Manager *man, int id) {
     man->crew.len++;
     man->crew.freelen++;
 
-    if ((old_errno = pthread_create(&node->tid, NULL,
-            worker_thread, &node->worker)) != 0) {
-            fprintf(stderr, "manager: add_worker: pthread_create: %s\n",
-                strerror(old_errno));
-            exit(EXIT_FAILURE);
-    }
-
     unlock:
     if ((old_errno = pthread_mutex_unlock(&man->crew.lock)) != 0) {
         fprintf(stderr, "manager: add_worker: pthread_mutex_unlock: %s\n",
@@ -155,63 +151,40 @@ int get_worker_status(Manager *man, int id) {
     return ret;
 }
 
-/* job_status_map: Maps the job status string returns its corresponding status
-    code. Otherwise, returns -1. */
-static job_status job_status_map(char *status) {
-    if (strcmp(status, "running") == 0)
-        return job_running;
-    else if (strcmp(status, "complete") == 0)
-        return job_completed;
-    else if (strcmp(status, "incomplete") == 0)
-        return job_incomplete;
-    else
-        return -1;
+/* json_get_value: Gets the value from the JSON object with its name and
+    returns it. Otherwise, returns NULL. */
+static json_value *json_get_value(json_value *obj, const char *name) {
+    if (obj->type != json_object)
+        return NULL;
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, name) == 0)
+            return obj->u.object.values[i].value;
+    }
+    return NULL;
 }
 
-/* update_job_status: Updates the workers job status. */
-static void update_job_status(Worker *worker, job_status status) {
-    switch (status) {
-        case _JOB_RUNNING:
-            worker->job->status = _JOB_RUNNING;
-            break;
-        case _JOB_COMPLETED:
-            worker->job->status = _JOB_COMPLETED;
-            break;
-        case _JOB_INCOMPLETE:
-            worker->job->status = _JOB_INCOMPLETE;
-            break;
-        default:
-            fprintf(stderr, "manager: Warning: Worker job status is unknown\n");
-            break;
-    }
-    return;
+/* job_status_map: Maps the job status string returns its corresponding status
+    code. Otherwise, returns -1. */
+static int job_status_map(char *status) {
+    if (strcmp(status, "running") == 0)
+        return _JOB_RUNNING;
+    else if (strcmp(status, "complete") == 0)
+        return _JOB_COMPLETED;
+    else if (strcmp(status, "incomplete") == 0)
+        return _JOB_INCOMPLETE;
+    else
+        return -1;
 }
 
 /* worker_status_map: Maps the worker status string returns its corresponding
     status code. Otherwise, returns -1. */
 static worker_status worker_status_map(char *status) {
-    if (strcmp(status, "not_busy") == 0)
-        return worker_not_busy;
-    else if (strcmp(status, "busy") == 0)
-        return worker_busy;
+    if (strcmp(status, "not_working") == 0)
+        return worker_not_working;
+    else if (strcmp(status, "working") == 0)
+        return worker_working;
     else
         return -1;
-}
-
-/* update_status: Updates the workers status. */
-static void update_status(Worker *worker, worker_status status) {
-    switch (status) {
-        case worker_busy:
-            worker->status = worker_busy;
-            break;
-        case worker_not_busy:
-            worker->status = worker_not_busy;
-            break;
-        default:
-            fprintf(stderr, "manager: Warning: Worker status is unknown\n");
-            break;
-    }
-    return;
 }
 
 /* worker_socket_handler: Closes the socket. */
@@ -256,10 +229,13 @@ static void *worker_thread(void *args) {
     // Update worker status
     int nbyte, status;
     char buf[BUFLEN];
-    json_value *res;
+    json_value *res, *val;
     char *get_status = "{\"command\":\"get_status\"}";
     char *get_job_status = "{\"command\":\"get_job_status\"}";
     while (sleep(1) == 0) {
+        if (worker->status == worker_not_assigned)
+            continue;
+
         // Get worker status
         if (send(sockfd, get_status, strlen(get_status), 0) == -1) {
             perror("manager: worker_thread: send");
@@ -274,21 +250,26 @@ static void *worker_thread(void *args) {
 
         if ((res = json_parse(buf, strlen(buf))) == NULL) {
             fprintf(stderr, "manager: worker_thread: json_parse: Unable to parse response\n");
-            exit(EXIT_FAILURE);
+            continue;
         }
         
-        for (int i = 0; i < res->u.object.length; i++) {
-            if (strcmp(res->u.object.values[i].name, "status") == 0) {
-                status = worker_status_map(res->u.object.values[i].value);
-                update_status(worker, status);
-            }
+        if ((val = json_get_value(res, "status")) == NULL) {
+            fprintf(stderr, "manager: worker_thread: json_get_value: Error: Missing JSON value\n");
+            json_value_free(val);
+            goto get_job_status;
         }
+
+        // Update worker status
+        if ((status = worker_status_map(val->u.string.ptr)) == -1) {
+            fprintf(stderr, "manager: worker_thread: worker_status_map: Error: Unknown worker status\n");
+            json_value_free(val);
+            goto get_job_status;
+        }
+        worker->status = status;
         json_value_free(res);
 
-        if (worker->status == worker_not_assigned)
-            continue;
-
         // Get worker job status
+        get_job_status:
         if (send(sockfd, get_job_status, sizeof(get_job_status), 0) == -1) {
             perror("manager: worker_thread: send");
             exit(EXIT_FAILURE);
@@ -302,15 +283,21 @@ static void *worker_thread(void *args) {
 
         if ((res = json_parse(buf, strlen(buf))) == NULL) {
             fprintf(stderr, "manager: worker_thread: json_parse: Unable to parse response\n");
-            exit(EXIT_FAILURE);
+            continue;
         }
 
-        for (int i = 0; i < res->u.object.length; i++) {
-            if (strcmp(res->u.object.values[i].name, "job_status") == 0) {
-                status = job_status_map(res->u.object.values[i].value);
-                update_job_status(worker, status);
-            }
+        if ((val = json_get_value(res, "job_status")) == NULL) {
+            fprintf(stderr, "manager: worker_thread: json_get_value: Error: Missing JSON value\n");
+            json_value_free(res);
+            continue;
         }
+
+        if ((status = job_status_map(val->u.string.ptr)) == -1) {
+            fprintf(stderr, "manager: worker_thread: job_status_map: Error: Unknown worker status\n");
+            json_value_free(res);
+            continue;
+        }
+        worker->job->status = status;
         json_value_free(res);
     }
 
@@ -412,20 +399,78 @@ static void free_running_project(RunningProject *rproj) {
     return;
 }
 
-/* is_ready: Checks the status of each dependency and returns job status
-    ready, if all the jobs are complete. Otherwise, it returns job status
-    not ready. */
-static int is_ready(RunningProjectNode *node) {
-    for (int i = 0; i < node->len; i++) {
-        if (node->deps[i]->project_node->job->status != _JOB_COMPLETED)
-            return _JOB_NOT_READY;
+/* update_project_status: Updates the state of the project. */
+static void update_not_ready_queue(RunningProject *rproj) {
+    RunningProjectNode *curr = rproj->not_ready_jobs;
+    int ready_flag = 1;
+    while (curr) {
+        for (int i = 0; i < curr->len; i++) {
+            if (curr->deps[i]->job->status != _JOB_COMPLETED) {
+                curr->job = _JOB_NOT_READY;
+                ready_flag = 0;
+                break;
+            }
+        }
+        if (ready_flag)
+            curr->job = _JOB_READY;
+        ready_flag = 1;
+        curr = curr->next;
     }
-    return _JOB_READY;
+    return;
 }
 
-/* assign: Assigns jobs in the ready queue available workers. */
+/* freelist_pop: Removes the first node from the crew freelist and returns it. */
+static crew_node *freelist_pop(Crew *crew) {
+    crew->freelen--;
+    if (crew->freelen == 0) {
+        crew->freelist = NULL;
+        return crew->freelist;
+    }
+    crew->freelist->next_free = crew->freelist->prev_free;
+    crew->freelist->prev_free = crew->freelist->next_free;
+    crew->freelist = crew->freelist->next_free;
+    return crew->freelist;
+}
+
+/* freelist_push: Adds the node to the head of the crew freelist. */
+static void freelist_push(Crew *crew, crew_node *node) {
+    if (crew->freelen == 0) {
+        node->next_free = node;
+        node->prev_free = node;
+        crew->freelist = node;
+        crew->freelen++;
+        return;
+    }
+    node->next_free = crew->freelist;
+    crew->freelist->prev_free = node;
+    node->prev_free = crew->freelist->prev_free; 
+    crew->freelist->prev_free->next_free = node;
+    crew->freelist = node;
+    crew->freelen++;
+    return;
+}
+
+/* freelist_append: Adds the node to the tail of the crew freelist. */
+static void free_append(Crew *crew, crew_node *node) {
+    if (crew->freelen == 0) {
+        node->next_free = node;
+        node->prev_free = node;
+        crew->freelist = node;
+        crew->freelen++;
+        return;
+    }
+    node->next_free = crew->freelist;
+    crew->freelist->prev_free = node;
+    node->prev_free = crew->freelist->prev_free;
+    crew->freelist->prev_free->next_free = node;
+    crew->freelist++;
+    return;
+}
+
+/* assign: Assigns a job to a worker in the crew and returns 0. Otherwise,
+    returns -1. */
 static int assign_job(Manager *man, Job *job) {
-    int old_errno, sockfd, ret;
+    int old_errno, nbytes, sockfd, ret;
     if ((old_errno = pthread_mutex_lock(&man->crew.lock)) != 0) {
         fprintf(stderr, "manager: assign_job: pthread_mutex_lock: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
@@ -455,18 +500,95 @@ static int assign_job(Manager *man, Job *job) {
         "/run/pyoneer/worker%d.socket", man->crew.freelist->worker.id);
 #endif
     if (connect(sockfd, &servaddr, sizeof(servaddr)) == -1) {
-        perror("manager: worker_thread: connect");
+        perror("manager: assign_job: connect");
         exit(EXIT_FAILURE);
     }
 
-    char *cmd = "{\"command\":\"run_job\",\"job\":}"; // Stopping here to add encode_job method to Job class 
+    // Get node
+    crew_node *node = freelist_pop(&man->crew);
+
+    // Create json object
+    json_settings settings;
+    settings.value_extra = json_builder_extra;
+    
+    char error[128];
+    json_value *val, *status;
+    if ((val = json_parse_ex(&settings, "{\"command\":\"run_job\"}", 22, error)) == NULL) {
+        fprintf(stderr, "manager: assign_job: json_parse: %s\n", error);
+        ret = -1;
+        goto unlock;
+    }
+    json_object_entry(val, "job", encode_job(job));
+
+    char buf[BUFLEN];
+    json_serialize(buf, val);
+    json_builder_free(val);
+
+    // Send
+    if (send(sockfd, buf, strlen(buf), 0) == -1) {
+        perror("manager: assign_job: send");
+        exit(EXIT_FAILURE);
+    }
+
+    // Recv
+    if ((nbytes = recv(sockfd, buf, BUFLEN, 0)) == -1) {
+        perror("manager: assign_job: recv");
+        exit(EXIT_FAILURE);
+    }
+    buf[nbytes >= BUFLEN ? BUFLEN - 1 : nbytes] = '\0';
+
+    // Parse response
+    if ((val = json_parse_ex(&settings, buf, strlen(buf), error)) == NULL) {
+        fprintf(stderr, "manager: assign_job: json_parse_ex: %s\n", error);
+        freelist_push(&man->crew, node);
+        ret = -1;
+        goto unlock;
+    }
+
+    // Update worker status
+    if ((status = json_get_value(val, "status")) == NULL) {
+        fprintf(stderr, "manager: assign_job: json_get_value: Error: Missing status value\n");
+        json_builder_free(val);
+        freelist_push(&man->crew, node);
+        ret = -1;
+        goto unlock;
+    }
+    node->worker.status = worker_status_map(status->u.string.ptr);
+
+    // Update job status
+    if ((status = json_get_value(val, "job_status")) == NULL) {
+        fprintf(stderr, "manager: assign_job: json_get_value: Error: Missing job_status value\n");
+        json_builder_free(val);
+        freelist_push(&man->crew, node);
+        ret = -1;
+        goto unlock;
+    }
+
+    switch (status->type) {
+        case json_string:
+            node->worker.job->status = job_status_map(status->u.string.ptr);
+            break;
+        default:
+            node->worker.job->status = -1;
+            break;
+    }
+    json_builder_free(val);
+
+    // Create worker thread
+    if ((old_errno = pthread_create(&node->tid, NULL,
+            worker_thread, &node->worker)) != 0) {
+            fprintf(stderr, "manager: add_worker: pthread_create: %s\n",
+                strerror(old_errno));
+            exit(EXIT_FAILURE);
+    }
+    ret = 0;
 
     unlock:
     if ((old_errno = pthread_mutex_unlock(&man->crew.lock)) != 0) {
         fprintf(stderr, "manager: assing_job: pthread_mutex_unlock: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
-    
+    return ret;
 }
 
 /* project_queue_handler: Frees all memory allocated to the queue. */
@@ -492,15 +614,19 @@ static void *project_thread(void *args) {
 
     RunningProjectNode *curr;
     while (sleep(1) != -1) {
-        // Schedule
-        schedule(rproj);
+        // Schedule not ready jobs
+        update_not_ready_queue(rproj);
         for (curr = rproj->not_ready_jobs->head; curr; curr = curr->next) {
-            if (is_ready(curr) == _JOB_READY)
+            if (curr->job->status == _JOB_READY)
                 add_node(rproj->ready_jobs, remove_node(rproj->not_ready_jobs, curr));
         }
         
-        // Assign
-
+        // Assign ready jobs
+        for (curr = rproj->ready_jobs; curr; curr = curr->next) {
+            if (assign_job(man, curr->job) == -1)
+                break;
+            add_node(rproj->running_jobs, remove_node(rproj->ready_jobs, curr));
+        }
 
         // Finalize
 
@@ -539,7 +665,7 @@ int run_project(Manager *man, Project *proj) {
             perror("manager: run_project: malloc");
             exit(EXIT_FAILURE);
         }
-        node->project_node = pn;
+        node->job = pn->job;
 
         if ((node->deps = malloc(sizeof(RunningProjectNode *) * pn->len)) == NULL) {
             perror("manager: run_project: malloc");
