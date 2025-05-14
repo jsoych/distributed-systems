@@ -232,6 +232,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+#if __linux__
+    close(logfd);
+#endif
+
     free_worker(worker);
     if (job != NULL)
         free_job(job);

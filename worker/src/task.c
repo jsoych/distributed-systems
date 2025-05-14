@@ -9,7 +9,7 @@ static char python[] = "/Users/leejahsprock/miniconda3/envs/pyoneer/bin/python";
 static char tasks_dir[] = "/Users/leejahsprock/cs/distributed-systems/worker/tasks/";
 #elif __linux__
 static char python[] = "/usr/bin/python3";
-static char tasks_dir[] = "/root/distributed-systems/worker/tasks/"
+static char tasks_dir[] = "/root/distributed-systems/worker/tasks/";
 #endif
 
 /* create_task: Creates a new task. */
