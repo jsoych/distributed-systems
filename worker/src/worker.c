@@ -1,6 +1,7 @@
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <signal.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -183,17 +184,17 @@ static void *job_thread(void *args) {
     job->status = _JOB_RUNNING;
 
     // Create task threads
-    RunningJobNode *rnode;
-    for (rnode = rjob->head; rnode; rnode = rnode->next)
-        if (pthread_create(&rnode->task_tid, NULL, task_thread, rnode) != 0) {
-            perror("worker: job_thread: pthread_create");
+    int old_errno;
+    for (RunningJobNode *rnode = rjob->head; rnode; rnode = rnode->next)
+        if ((old_errno = pthread_create(&rnode->task_tid, NULL, task_thread, rnode)) != 0) {
+            fprintf(stderr, "worker: job_thread: pthread_create: %s\n", strerror(old_errno));
             exit(EXIT_FAILURE);
         }
 
     // Join all task threads
-    for (rnode = rjob->head; rnode; rnode = rnode->next)
-        if (pthread_join(rnode->task_tid,NULL) != 0) {
-            perror("worker: job_thread: pthread_join");
+    for (RunningJobNode *rnode = rjob->head; rnode; rnode = rnode->next)
+        if ((old_errno = pthread_join(rnode->task_tid,NULL)) != 0) {
+            fprintf(stderr, "worker: job_thread: pthread_join: %s\n", strerror(old_errno));
             exit(EXIT_FAILURE);
         }
 
@@ -209,20 +210,21 @@ static void *job_thread(void *args) {
         }
 
         if (prev == NULL) {
-            rjob->head = curr->next;
-            free(curr);
-            curr = rjob->head;
+            prev = rjob->head;
+            rjob->head = (curr = curr->next);
+            free(prev);
+            prev = NULL;
             continue;
         }
 
-        prev->next = curr->next;
-        free(curr);
-        curr = prev->next;
+        prev = curr;
+        curr = curr->next;
+        free(prev);
     }
 
     // Update job status
-    JobNode *node;
-    for (node = job->head, job->status = _JOB_COMPLETED; node; node = node->next)
+    job->status = _JOB_COMPLETED;
+    for (JobNode *node = job->head; node; node = node->next)
         if (node->status == _TASK_INCOMPLETE) {
             job->status = _JOB_INCOMPLETE;
             break;
@@ -230,6 +232,7 @@ static void *job_thread(void *args) {
     
     // Update worker status
     rjob->worker->status = _WORKER_NOT_WORKING;
+    return NULL;
 }
 
 /* run_job: Runs the job and returns 0. If the worker is workering then,
@@ -246,77 +249,73 @@ int run_job(Worker *worker, Job *job) {
     RunningJob *rjob = create_running_job(worker,job);
 
     // Add incomplete tasks to the running job
-    JobNode *node;
-    for (node = job->head; node; node = node->next)
+    for (JobNode *node = job->head; node; node = node->next) {
         if (node->status == _TASK_INCOMPLETE)
             add_node(rjob,node);
+    }
 
     // Create job thread
-    if (pthread_create(&rjob->job_tid, NULL, job_thread, rjob) != 0) {
-        perror("worker: run_job: pthread_create");
+    int old_errno;
+    if ((old_errno = pthread_create(&rjob->job_tid, NULL, job_thread, rjob)) != 0) {
+        fprintf(stderr, "worker: run_job: pthread_create: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
 
     return 0;
 }
 
-/* get_status: Returns the status of the worker. If the worker's
-    running_job attribute is set, get_status stores the status of the
-    running_job at the given job_status address. */
-int get_status(Worker *worker, int *job_status) {
-    if (job_status == NULL)
-        return worker->status;
-
-    if (worker->running_job)
-        *job_status = worker->running_job->job->status;
-
+/* get_status: Returns the status of the worker. */
+int get_status(Worker *worker) {
     return worker->status;
 }
 
-// start: Starts the worker and returns 0. Otherwise, start returns -1.
+/* get_job_status: Returns the status of the running job. Otherwise,
+    returns -1. */
+int get_job_status(Worker *worker) {
+    if (worker->running_job == NULL)
+        return -1;
+    return worker->running_job->job->status;
+}
+
+/* start: Starts the worker and returns the job status. */
 int start(Worker *worker) {
-    if (worker->status == _WORKER_WORKING) {
-        fprintf(stderr, "worker: start: worker is already working\n");
+    if (worker->status == _WORKER_WORKING)
+        return get_job_status(worker);
+
+    if (get_job_status(worker) == -1) {
+        fprintf(stderr, "worker: start: Warning: No job assigned\n");
         return -1;
     }
-
-    if (worker->running_job == NULL) {
-        fprintf(stderr, "worker: start: no running job\n");
-        return -1;
-    }
-
-    if (worker->running_job->job->status == _JOB_COMPLETED)
-        return 0;
 
     // Create job thread
-    if (pthread_create(&worker->running_job->job_tid, NULL, job_thread,
-            worker->running_job) != 0) {
-        perror("worker: start: pthread_create");
+    int old_errno;
+    if ((old_errno = pthread_create(&worker->running_job->job_tid, NULL, job_thread,
+            worker->running_job)) != 0) {
+        fprintf(stderr, "worker: start: pthread_create: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
 
-    return 0;
+    return get_job_status(worker);
 }
 
-// stop: Stops the worker and its running job.
-void stop(Worker *worker) {
+/* stop: Stops the worker's running job, and returns the workers status. */
+int stop(Worker *worker) {
     if (worker->status == _WORKER_NOT_WORKING)
-        return;
-
-    if (worker->running_job == NULL)
-        return;
+        return get_job_status(worker);
 
     // Stop each running task
-    RunningJobNode *node;
-    for (node = worker->running_job->head; node; node = node->next) {
+    int old_errno;
+    for (RunningJobNode *node = worker->running_job->head; node; node = node->next) {
         // Try to cancel thread
-        if (pthread_cancel(node->task_tid) != 0)
-            perror("worker: stop: pthread_cancel");
+        if ((old_errno = pthread_cancel(node->task_tid)) != 0)
+            fprintf(stderr, "worker: stop: pthread_cancel: %s\n", strerror(old_errno));
     }
 
     // Join job thread
-    if (pthread_join(worker->running_job->job_tid,NULL) != 0) {
-        perror("worker: stop: pthread_join");
+    if ((old_errno = pthread_join(worker->running_job->job_tid,NULL)) != 0) {
+        fprintf(stderr, "worker: stop: pthread_join: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
+
+    return get_job_status(worker);
 }

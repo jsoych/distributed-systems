@@ -1,7 +1,7 @@
 #ifndef _WORKER_H
 #define _WORKER_H
-#define _WORKER_NOT_WORKING -1
-#define _WORKER_WORKING 0
+#define _WORKER_NOT_WORKING 0
+#define _WORKER_WORKING 1
 
 #include <pthread.h>
 #include "job.h"
@@ -29,9 +29,12 @@ typedef struct _worker {
 
 Worker *create_worker(int);
 void free_worker(Worker *);
+
+// Commands (and signals)
 int run_job(Worker *, Job *);
-int get_status(Worker *, int *);
+int get_status(Worker *);
+int get_job_status(Worker *);
 int start(Worker *);
-void stop(Worker *);
+int stop(Worker *);
 
 #endif

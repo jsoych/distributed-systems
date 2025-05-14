@@ -10,8 +10,8 @@ WORKER = os.getenv('WORKER_SOCKET', '/Users/leejahsprock/pyoneer/run/worker3.soc
 BUFFSIZE = 1024
 
 # Get worker and job status codes
-worker_codes = get_worker_status_codes()
-job_codes = get_job_status_codes()
+worker_states = ['working', 'not_working']
+job_states = [None, 'running', 'completed', 'incomplete']
 
 class SmallTest(unittest.TestCase):
     ''' Tests the run_job command. '''
@@ -43,22 +43,24 @@ class SmallTest(unittest.TestCase):
         res = self.send_commnad(com)
 
         # Check res status codes
-        self.assertIn(res['status'],worker_codes.values())
-        self.assertIn(res['job_status'],job_codes.values())
+        self.assertIn(res['status'], worker_states)
+        self.assertIn(res['job_status'], job_states)
     
     def test_start(self):
-        self.send_commnad({'command': 'start'})
+        res = self.send_commnad({'command': 'start'})
+        self.assertIn(res['job_status'], job_states)
     
     def test_stop(self):
-        self.send_commnad({'command': 'stop'})
+        res = self.send_commnad({'command': 'stop'})
+        self.assertIn(res['job_status'], job_states)
 
     def test_get_status(self):
         res = self.send_commnad({'command': 'get_status'})
-        self.assertIn(res['status'],worker_codes.values())
+        self.assertIn(res['status'], worker_states)
 
     def test_get_job_status(self):
         res = self.send_commnad({'command': 'get_job_status'})
-        self.assertIn(res['job_status'],job_codes.values(),'accept None')
+        self.assertIn(res['job_status'], job_states)
 
 if __name__ == '__main__':
     unittest.main()
