@@ -515,8 +515,6 @@ static void *worker_thread(void *args) {
         perror("manager: worker_thread: socket");
         exit(EXIT_FAILURE);
     }
-
-    // Connect to the worker
     struct sockaddr_un servaddr;
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sun_family = AF_LOCAL;
@@ -527,20 +525,19 @@ static void *worker_thread(void *args) {
     snprintf(servaddr.sun_path, sizeof(servaddr.sun_path),
         "/run/pyoneer/worker%d.socket", worker->id);
 #endif
+
     if (connect(sockfd, &servaddr, sizeof(servaddr)) == -1) {
         perror("manager: worker_thread: connect");
         exit(EXIT_FAILURE);
     }
 
-    // Add close connection to cleanup handlers
-    pthread_cleanup_push(worker_socket_handler, &sockfd);
-
-    // Update worker status
+    // Update worker status and job status
     int nbyte, status;
     char buf[BUFLEN];
-    json_value *res, *val;
     char *get_status = "{\"command\":\"get_status\"}";
     char *get_job_status = "{\"command\":\"get_job_status\"}";
+    json_value *res, *val;
+    pthread_cleanup_push(worker_socket_handler, &sockfd);
     while (sleep(1) == 0) {
         if (worker->status == worker_not_assigned)
             continue;
