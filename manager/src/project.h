@@ -14,7 +14,7 @@
 typedef struct _list {
     ProjectNode *head;
     ProjectNode *tail;
-} List;
+} list;
 
 // ProjectNode
 typedef struct _project_node {
@@ -31,7 +31,7 @@ typedef struct _project {
     int id;
     int status;
     int len;
-    List *jobs_list;
+    list jobs_list;
     ProjectNode *jobs_table[MAXLEN];
 } Project;
 
@@ -41,7 +41,7 @@ void add_job(Project *, Job *, int [], int);
 void remove_job(Project *, int);
 int get_job_status(Project *, int);
 int audit_project(Project *);
-List *schedule_jobs(Project *);
+list *schedule_jobs(Project *);
 cJSON *encode_project(Project *);
 Project *decode_project(cJSON *);
 

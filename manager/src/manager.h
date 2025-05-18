@@ -4,13 +4,11 @@
 #define _MANAGER_WORKING 1
 
 #include <pthread.h>
-#include "cJSON.h"
 #include "project.h"
 
-// worker status
+// worker statuses
 typedef enum {
     worker_not_assigned,
-    worker_assigned,
     worker_not_working,
     worker_working
 } worker_status;
@@ -26,7 +24,7 @@ struct _manager;
 
 // Crew node structure
 typedef struct _crew_node {
-    Worker worker;
+    Worker *worker;
     struct _crew_node *next;
     struct _crew_node *prev;
     struct _crew_node *next_free;
@@ -34,13 +32,17 @@ typedef struct _crew_node {
     pthread_t tid;
 } crew_node;
 
+// list structure
+typedef struct _list {
+    crew_node *head;
+    crew_node *tail;
+    int len;
+} list;
+
 // Crew object
 typedef struct _crew {
-    crew_node *workers;
-    crew_node *freelist;
-    int len;
-    int freelen;
-    pthread_t tid;
+    list workers;
+    list freelist;
     pthread_mutex_t lock;
 } Crew;
 
@@ -54,21 +56,22 @@ typedef struct _queue {
 // RunningProjectNode
 typedef struct _running_project_node {
     Job *job;
-    struct _running_project_node **deps;
+    Job **deps;
     int len;
     struct _running_project_node *next;
     struct _running_project_node *prev;
+    int worker_id;
 } RunningProjectNode;
 
 // RunningProject object
 typedef struct _running_project {
     struct _manager *manager;
     Project *project;
-    queue *not_ready_jobs;
-    queue *ready_jobs;
-    queue *running_jobs;
-    queue *comleted_jobs;
-    queue *incomplete_jobs;
+    queue not_ready_jobs;
+    queue ready_jobs;
+    queue running_jobs;
+    queue completed_jobs;
+    queue incomplete_jobs;
     pthread_t tid;
 } RunningProject;
 
@@ -76,7 +79,7 @@ typedef struct _running_project {
 typedef struct _manager {
     int id;
     int status;
-    Crew crew;
+    Crew *crew;
     RunningProject *running_project;
 } Manager;
 
@@ -88,7 +91,6 @@ void add_worker(Manager *, int);
 int run_project(Manager *, Project *);
 int get_status(Manager *);
 int get_project_status(Manager *);
-int get_worker_status(Manager *, int);
 int start(Manager *);
 int stop(Manager *);
 

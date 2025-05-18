@@ -4,98 +4,76 @@
 #include <string.h>
 #include "project.h"
 
-/* create_list: Creates a new list. */
-static List *create_list() {
-    List *l;
-    if (l = malloc(sizeof(List)) == -1) {
-        perror("project: create_list: malloc");
-        exit(EXIT_FAILURE);
-    }
-    l->head = NULL;
-    l->tail = NULL;
-    return l;
-}
-
-/* free_list: Frees the memory allocated to the list. */
-static void free_list(List *l) {
-    if (l->head == NULL) {
-        free(l);
-        return;
-    }
-    
-    // Free nodes
-    ProjectNode *curr;
-    while (curr) {
-        curr = curr->next;
-        free(curr->prev);
-    }
-    free(curr);
-
-    free(l);
-    return;
-}
-
-// create_project: Creates a new project.
+/* create_project: Creates a new project. */
 Project *create_project(int id) {
     Project *proj;
     if ((proj = malloc(sizeof(Project))) == NULL) {
         perror("project: create_project: malloc");
         exit(EXIT_FAILURE);
     }
-
     proj->id = id;
     proj->status = _PROJECT_NOT_READY;
     proj->len = 0;
-    proj->jobs_list = create_list();
+    proj->jobs_list.head = NULL;
+    proj->jobs_list.tail = NULL;
     for (int i = 0; i < MAXLEN; i++) {
         proj->jobs_table[i] = NULL;
     }
-
     return proj;
 }
 
 // free_project: Frees the memory allocated to the project.
 void free_project(Project *proj) {
-    free_list(proj->jobs_list);
+    if (proj->len == 0)
+        free(proj);
+    ProjectNode *curr = proj->jobs_list.head;
+    while (curr->next) {
+        free_job(curr->job);
+        free(curr->deps);
+        curr = curr->next;
+        free(curr->prev);
+    }
+    free_job(curr->job);
+    free(curr->deps);
+    free(curr);
     free(proj);
+    return;
 }
 
 // add_job: Adds the job to the list with the ids of its dependencies.
 void add_job(Project *proj, Job *job, int ids[], int len) {
-    ProjectNode *new_node, *ent;
-    if ((new_node = malloc(sizeof(ProjectNode))) == -1) {
+    ProjectNode *node, *ent;
+    if ((node = malloc(sizeof(ProjectNode))) == -1) {
         perror("project: add_job: malloc");
         exit(EXIT_FAILURE);
     }
-
     int *deps;
-    if ((deps = malloc(sizeof(int))) == -1) {
+    if ((deps = malloc(sizeof(int) * len)) == -1) {
         perror("project: add_job: malloc");
         exit(EXIT_FAILURE);
     }
-
     for (int i = 0; i < len; i++) {
         deps[i] = ids[i];
     }
-
-    new_node->job = job;
-    new_node->deps = deps;
-    new_node->len = len;
+    node->job = job;
+    node->deps = deps;
+    node->len = len;
     
     // Add new_node to jobs table
-    new_node->next_ent = proj->jobs_table[job->id % MAXLEN];
-    proj->jobs_table[job->id % MAXLEN] = new_node;
+    node->next_ent = proj->jobs_table[job->id % MAXLEN];
+    proj->jobs_table[job->id % MAXLEN] = node;
 
     // Add new_node to the jobs list
+    node->next = NULL;
+    node->prev = proj->jobs_list.tail;
     if (proj->len == 0) {
-        new_node->next = NULL;
-        proj->jobs_list->tail = new_node;
-    } else {
-        proj->jobs_list->head->prev = new_node;
+        proj->jobs_list.head = node;
+        proj->jobs_list.tail = node;
+        proj->len++;
+        return;
     }
-    new_node->prev = NULL;
-    new_node->next = proj->jobs_list->head;
-
+    proj->jobs_list.tail->next = node;
+    proj->jobs_list.tail = node;
     proj->len++;
     return;
 }
@@ -113,43 +91,25 @@ static ProjectNode *get_node(Project *proj, int id) {
 
 /* remove_job: Removes the job from the project by its job id. */
 void remove_job(Project *proj, int id) {
-    ProjectNode *node = get_node(proj,id);
+    if (proj->len == 0)
+        return;
+
+    ProjectNode *node = get_node(proj, id);
     if (node == NULL)
         return;
 
-    ProjectNode *ent = proj->jobs_table[id % MAXLEN];
-    if (proj->len-- == 1) {
-        proj->jobs_list->head = NULL;
-        proj->jobs_list->tail = NULL;
-        proj->jobs_table[id % MAXLEN] = NULL;
-        free_job(node->job);
-        free(node->deps);
-        free(node);
-        return;
-    }
-    
-    // Update jobs_table
-    if (ent == node)
-        proj->jobs_table[id % MAXLEN] = ent->next_ent;
-    
-    while (ent->next_ent) {
-        if (ent->next_ent == node)
-            ent->next_ent = node->next_ent;
-        ent = ent->next_ent;
-    }
-
-    // Update jobs_list
-    if (node == proj->jobs_list->head) {
-        node->next->prev = NULL;
-        proj->jobs_list->head = node->next;
-    } else if (node == proj->jobs_list->tail) {
-        node->prev->next = NULL;
-        proj->jobs_list->tail = node->prev;
-    } else {
+    proj->len--;
+    proj->jobs_table[id % MAXLEN] = node->next_ent;
+    if (node->prev) {
         node->prev->next = node->next;
-        node->next->prev = node->prev;
+    } else {
+        proj->jobs_list.head = node->next;
     }
-    
+    if (node->next) {
+        node->next->prev = node->prev;
+    } else {
+        proj->jobs_list.tail = node->prev;
+    }
     free_job(node->job);
     free(node->deps);
     free(node);
@@ -604,7 +564,7 @@ int audit_project(Project *proj) {
     // Check for missing jobs
     struct deque *job_ids = create_deque();
     struct table *deps_ids = create_table();
-    ProjectNode *curr = proj->jobs_list->head;
+    ProjectNode *curr = proj->jobs_list.head;
 
     int i;
     while (curr) {
@@ -613,7 +573,7 @@ int audit_project(Project *proj) {
         curr = curr->next;
     }
 
-    curr = proj->jobs_list->head;
+    curr = proj->jobs_list.head;
     while (curr) {
         if (search(deps_ids,curr->job->id) == 0)
             append(job_ids,curr->job->id);
@@ -638,7 +598,7 @@ int audit_project(Project *proj) {
 
     // Check for cycle
     struct path *cycle;
-    curr = proj->jobs_list->head;
+    curr = proj->jobs_list.head;
     while (curr) {
         if ((cycle = get_cycle(proj,curr->job->id)) != NULL)
             break;
@@ -673,7 +633,7 @@ cJSON *encode_project(Project *proj) {
 
     cJSON *obj, *item, *job, *jobs;
     jobs = cJSON_CreateArray();
-    for (ProjectNode *curr = proj->jobs_list; curr; curr = curr->next) {
+    for (ProjectNode *curr = proj->jobs_list.head; curr; curr = curr->next) {
         if ((item = cJSON_CreateObject()) == NULL) {
             fprintf(stderr, "project: encode_project: cJSON_CreateObject\n");
             exit(EXIT_FAILURE);
