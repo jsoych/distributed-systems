@@ -9,15 +9,31 @@
 // worker statuses
 typedef enum {
     worker_not_assigned,
+    worker_assigned,
     worker_not_working,
     worker_working
 } worker_status;
+
+// job statuses
+typedef enum {
+    job_not_ready,
+    job_ready,
+    job_running,
+    job_completed,
+    job_incomplete
+} job_status;
+
+// Job structure
+typedef struct _job {
+    int id;
+    job_status status;
+} job;
 
 // Worker object
 typedef struct _worker {
     int id;
     worker_status status;
-    Job *job;
+    job job;
 } Worker;
 
 struct _manager;
@@ -44,6 +60,7 @@ typedef struct _crew {
     list workers;
     list freelist;
     pthread_mutex_t lock;
+    pthread_t tid;
 } Crew;
 
 // queue structure
@@ -55,12 +72,12 @@ typedef struct _queue {
 
 // RunningProjectNode
 typedef struct _running_project_node {
+    int worker_id;
     Job *job;
     Job **deps;
     int len;
     struct _running_project_node *next;
     struct _running_project_node *prev;
-    int worker_id;
 } RunningProjectNode;
 
 // RunningProject object
