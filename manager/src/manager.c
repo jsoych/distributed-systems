@@ -582,15 +582,6 @@ int get_project_status(Manager *man) {
     return man->running_project->project->status;
 }
 
-/* free_manager: Frees the memory allocated to the manager. */
-void free_manager(Manager *man) {
-    int old_errno;
-    free_crew(man->crew);
-    free_running_project(man->running_project);
-    free(man);
-    return;
-}
-
 /* assign: Assigns a job to a worker in the crew and returns 0. Otherwise,
     returns -1. */
 static int assign_job(Manager *man, Job *job) {
@@ -660,47 +651,6 @@ static int assign_job(Manager *man, Job *job) {
     return ret;
 }
 
-/* sync_project: Synchronizes the project job statuses with the crew job
-    job statuses. */
-static void sync_project(Manager *man) {
-    Project *proj = man->running_project->project;
-    
-    int old_errno;
-    if ((old_errno = pthread_mutex_lock(&man->crew->lock)) != 0) {
-        fprintf(stderr, "manager: update_project_status: %s\n", strerror(old_errno));
-        exit(EXIT_FAILURE);
-    }
-    
-    Job *job;
-    crew_node *curr = man->crew->workers.head;
-    while (curr) {
-        if (curr->worker->status == worker_not_assigned) {
-            curr = curr->next;
-            continue;
-        }
-
-        job = get_job(proj, curr->worker->job.id);
-        switch (curr->worker->job.status) {
-            case job_running:
-                job->status = _JOB_RUNNING;
-                break;
-            case job_completed:
-                job->status = _JOB_COMPLETED;
-                break;
-            case job_incomplete:
-                job->status = _JOB_INCOMPLETE;
-                break;
-        }
-        curr = curr->next;
-    }
-
-    if((old_errno = pthread_mutex_unlock(&man->crew->lock)) != 0) {
-        fprintf(stderr, "manager: update_project_status: %s\n", strerror(old_errno));
-        exit(EXIT_FAILURE);
-    }
-    return;
-}
-
 /* unassign_worker: Unassigns the worker. */
 static void unassign_worker(Manager *man, int worker_id) {
     int old_errno;
@@ -743,6 +693,47 @@ static void unassign_worker(Manager *man, int worker_id) {
     unlock:
     if ((old_errno = pthread_mutex_unlock(&man->crew->lock)) != 0) {
         fprintf(stderr, "manager: unassign_worker: pthread_mutex_unlock: %s\n", strerror(old_errno));
+        exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+/* sync_project: Synchronizes the project job statuses with the crew job
+    job statuses. */
+static void sync_project(Manager *man) {
+    Project *proj = man->running_project->project;
+    
+    int old_errno;
+    if ((old_errno = pthread_mutex_lock(&man->crew->lock)) != 0) {
+        fprintf(stderr, "manager: update_project_status: %s\n", strerror(old_errno));
+        exit(EXIT_FAILURE);
+    }
+    
+    Job *job;
+    crew_node *curr = man->crew->workers.head;
+    while (curr) {
+        if (curr->worker->status == worker_not_assigned) {
+            curr = curr->next;
+            continue;
+        }
+
+        job = get_job(proj, curr->worker->job.id);
+        switch (curr->worker->job.status) {
+            case job_running:
+                job->status = _JOB_RUNNING;
+                break;
+            case job_completed:
+                job->status = _JOB_COMPLETED;
+                break;
+            case job_incomplete:
+                job->status = _JOB_INCOMPLETE;
+                break;
+        }
+        curr = curr->next;
+    }
+
+    if((old_errno = pthread_mutex_unlock(&man->crew->lock)) != 0) {
+        fprintf(stderr, "manager: update_project_status: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
     return;
@@ -905,4 +896,50 @@ int run_project(Manager *man, Project *proj) {
     }
     man->status = _MANAGER_WORKING;
     return 0;
+}
+
+/* start: Starts the running project and returns the project status.
+    If the running project is NULL, start returns -1. */
+int start(Manager *man) {
+    if (man->running_project == NULL)
+        return -1;
+    
+    if (man->status == _MANAGER_WORKING)
+        return man->running_project->project->status;
+    
+    int old_errno;
+    if (man->running_project->project->status == _PROJECT_READY) {
+        if ((old_errno = pthread_create(&man->running_project->tid, NULL, project_thread, man->running_project)) != 0) {
+            fprintf(stderr, "manager: start: %s\n", strerror(old_errno));
+            exit(EXIT_FAILURE);
+        }
+    }
+    return man->running_project->project->status;
+}
+
+/* stop: Stops the running project and returns the project status. If
+    the running project is NULL, stop returns -1. */
+int stop(Manager *man) {
+    if (man->running_project == NULL)
+        return -1;
+    
+    if (man->status == _MANAGER_NOT_WORKING)
+        return man->running_project->project->status;
+    
+    int old_errno;
+    if ((old_errno = pthread_cancel(man->running_project->tid)) != 0) {
+        fprintf(stderr, "manager: stop: %s\n", strerror(old_errno));
+    }
+    return man->running_project->project->status;
+}
+
+
+/* free_manager: Frees the memory allocated to the manager. */
+void free_manager(Manager *man) {
+    if (man->status == _MANAGER_WORKING)
+        stop(man);
+    free_crew(man->crew);
+    free_running_project(man->running_project);
+    free(man);
+    return;
 }
