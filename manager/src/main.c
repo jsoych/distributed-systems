@@ -7,64 +7,65 @@
 #include <sys/un.h>
 #include "manager.h"
 #include "project.h"
-#include "cJSON.h"
+#include "json.h"
+#include "json-builder.h"
 
-#define True 1
-#define False 0
+#define BACKLOG 10
+#define BUFLEN 1024
 
-// cJSON macros
-#define CreateObject() cJSON_CreateObject()
-#define Delete(item) cJSON_Delete(item)
-#define IsInvalid(item) cJSON_IsInvalid(item)
-#define IsObject(item) cJSON_IsObject(item)
-#define HasItem(obj,name) cJSON_HasObjectItem(obj,name)
-#define GetItem(obj,name) cJSON_GetObjectItem(obj,name)
-#define AddItem(obj,name,item) cJSON_AddItemToObject(obj,name,item)
-#define CreateNumber(num) cJSON_CreateNumber(num)
-#define CreateString(str) cJSON_CreateString(str)
-#define CreateNull() cJSON_CreateNull()
-#define Marshal(item) cJSON_PrintUnformatted(item)
-#define Unmarshal(str) cJSON_Parse(str)
+// Logging levels
+enum {
+    info,
+    debug
+};
 
-#define BUFFLEN 4096
-
-char buf[BUFFLEN];
+// Globals
+int logging_level;
 Manager *manager;
-Project *project;
+
+json_value *json_get_value(json_value *, char *);
+json_value *manager_status_map(int);
+json_value *project_status_map(int);
+void *manager_thread(void *arg);
 
 int main(int argc, char *argv[]) {
-    if (argc < 1) {
-        fprintf(stderr, "main: expected 1 or 2 arguments, recieved %d\n", argc-1);
+    // Check arguments
+    if (argc != 3) {
+        fprintf(stderr, "main: expected 2 arguments, received %d arguments\n", argc - 1);
         exit(EXIT_FAILURE);
     }
 
-    manager = create_manager(strtol(argv[1], NULL, 10));
-    project = NULL;
+    // Set logging level
+    if (strcmp(argv[2], "debug") == 0)
+        logging_level = debug;
+    else
+        logging_level = info;
 
-    // Create a local socket
+    // Create manager
+    manager = create_manager((int) strtol(argv[1], NULL, 0));
+    
+    // Create endpoint
     struct sockaddr_un addr;
-    char path[sizeof(addr.sun_path)];
-    char *s = path;
-    int len, sd;
-    socklen_t size;
-
-    memset(&addr,0,sizeof(addr));
+    bzero(&addr, sizeof(addr));
     addr.sun_family = AF_LOCAL;
-
-    // Create the manager socket path
-    len = sizeof(path);
 #ifdef __APPLE__
-    s = stpncpy(s, "/Users/leejahsprock/pyoneer/run/", len-1);
+    snprintf(
+        addr.sun_path,
+        sizeof(addr.sun_path),
+        "/Users/leejahsprock/pyoneer/run/manager%d.socket",
+        manager->id
+    );
 #elif __linux__
-    s = stpcpy(s, "/run/pyoneer/", len-1);
+    snprintf(
+        addr.sun_path,
+        sizeof(addr.sun_path),
+        "/run/pyoneer/manager%d.socket",
+        manager->id
+    );
 #endif
-    s = stpncpy(s, "manager.socket", len-1);
-    *s = '\0';
-
-    strcpy(addr.sun_path,path);
-    size = SUN_LEN(&addr);
-
-    if ((sd = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
+    
+    int serv;
+    if ((serv = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
         exit(EXIT_FAILURE);
     }
@@ -74,65 +75,208 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (bind(sd, (struct sockaddr *) &addr, size) == -1) {
+    if (bind(serv, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("main: bind");
         exit(EXIT_FAILURE);
     }
 
-    if (listen(sd,1) == -1) {
+    if (listen(serv, BACKLOG) == -1) {
         perror("main: listen");
         exit(EXIT_FAILURE);
     }
 
-    int client_sd, nbytes;
     struct sockaddr_storage client_addr;
-    size = sizeof(client_addr);
-    cJSON *obj, *ret, *item;
-    while (True) {
-        // Accept client connection
-        if ((client_sd = connect(sd, (struct sockaddr *) &client_addr, &size)) == -1) {
-            perror("main: connect");
+    socklen_t addr_len;
+    int old_errno, clients[BACKLOG];
+    for (int idx = 0; 1; idx = (idx++) % BACKLOG) {
+        // Accept client connections
+        if ((clients[idx] = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
+            perror("main: accept");
             exit(EXIT_FAILURE);
         }
 
-        while ((nbytes = recv(client_sd, buf, BUFFLEN, BUFFLEN)) > 0) {
-            buf[(nbytes > BUFFLEN) ? BUFFLEN-1 : nbytes] = '\0';
-            obj = Unmarshal(buf);
-            ret = CreateObject();
+        // Create manager thread
+        if ((old_errno = pthread_create(NULL, NULL, manager_thread, &clients[idx])) != 0) {
+            fprintf(stderr, "main: pthread_create: %s\n", strerror(old_errno));
+            exit(EXIT_FAILURE);
+        }
+    }
 
-            // Check obj
-            if (IsInvalid(obj)) {
-                item = CreateString("invalid");
-                AddItem(ret,"error",item);
-            }
-            // Check if obj is a json object
-            else if (IsObject(obj) == False) {
-                item = CreateString("invalid json object");
-                AddItem(ret, "error", item);
-            } 
-            // Check if obj has a command item
-            else if (HasItem(obj,"command") == False) {
-                item = CreateString("missing command item");
-                AddItem(ret, "error", item);
-            }
-            // Pass the command to the worker
-            else {
-                
-            }
+}
 
-            Delete(obj);
-            Delete(ret);
+/* manager_status_map: Maps manager status codes to its corresponding
+    JSON value. */
+json_value *manager_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _MANAGER_NOT_WORKING:
+            val = json_string_new("not_working");
+            break;
+        case _MANAGER_WORKING:
+            val = json_string_new("working");
+            break;
+    }
+    return val;
+}
+
+/* project_status_map: Maps project status codes to its corresponding
+    JSON value. */
+json_value *project_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _PROJECT_READY:
+            val = json_string_new("ready");
+            break;
+        case _PROJECT_NOT_READY:
+            val = json_string_new("not_ready");
+            break;
+        case _PROJECT_RUNNING:
+            val = json_string_new("running");
+            break;
+        case _PROJECT_COMPLETED:
+            val = json_string_new("completed");
+            break;
+        case _PROJECT_INCOMPLETE:
+            val = json_string_new("incomplete");
+            break;
+        default:
+            val = json_null_new();
+            break;
+    }
+    return val;
+}
+
+/* json_get_value */
+json_value *json_get_value(json_value *obj, char *name) {
+    json_value *val = NULL;
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, name) == 0) {
+            val = obj->u.object.values[i].value;
+            break;
+        }
+    }
+    return val;
+}
+
+/* manager_thread: Responds to API requests (commands). */
+void *manager_thread(void *arg) {
+    int client = *((int *) arg);
+    Project *proj;
+    int nbytes;
+    json_value *obj, *res, *val, *cmd;
+    json_settings settings;
+    settings.value_extra = json_builder_extra;
+    char buf[BUFLEN], error[128];
+    while ((nbytes = recv(client, buf, BUFLEN, 0)) > 0) {
+        buf[(nbytes == BUFLEN ? BUFLEN - 1 : nbytes)] = '\0';
+
+        if ((res = json_object_new(0)) == NULL) {
+            fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
+            close(client);
+            break;
         }
 
-    }
+        if ((obj = json_parse_ex(&settings, buf, strlen(buf), error)) == NULL) {
+            fprintf(stderr, "main: json_parse_ex: %s\n", error);
+            obj = json_null_new();
+            val = json_string_new("unable to parse API request");
+            json_object_push(res, "error", val);
+            goto send;
+        }
 
-    if (close(sd) == -1) {
-        perror("main: close");
-        exit(EXIT_FAILURE);
-    }
+        if (obj->type != json_object) {
+            val = json_string_new("invalid JSON type");
+            json_object_push(res, "error", val);
+            goto send;
+        }
 
-    free_manager(manager);
-    if (project)
-        free_project(project);
-    exit(EXIT_SUCCESS);
+        if ((cmd = json_get_value(obj, "command")) == NULL) {
+            val = json_string_new("missing command");
+            json_object_push(res, "error", val);
+            goto send;
+        }
+
+        // Call manager command
+        // run_project
+        if (strcmp(cmd->u.string.ptr, "run_project") == 0) {
+            if ((val = json_get_value(obj, "project")) == NULL) {
+                val = json_string_new("missing project");
+                json_object_push(res, "error", val);
+                goto send;
+            }
+
+            if ((proj = decode_project(val)) == NULL) {
+                val = json_string_new("unable to decode project");
+                json_object_push(res, "error", val);
+                goto send;
+            }
+
+            if (run_project(manager, proj) == -1) {
+                val = json_string_new("unable to run project");
+                json_object_push(res, "error", val);
+                goto send;
+            }
+
+            val = manager_status_map(get_status(manager));
+            json_object_push(res, "status", val);
+            val = project_status_map(get_project_status(manager));
+            json_object_push(res, "project_status", val);
+        }
+        // get_status
+        else if (strcmp(cmd->u.string.ptr, "get_status") == 0) {
+            val = manager_status_map(get_status(manager));
+            json_object_push(res, "status", val);
+        }
+        // get_project_status
+        else if (strcmp(cmd->u.string.ptr, "get_project_status") == 0) {
+            val = project_status_map(get_project_status(manager));
+            json_object_push(res, "project_status", val);
+        }
+        // start
+        else if (strcmp(cmd->u.string.ptr, "start") == 0) {
+            val = project_status_map(start(manager));
+            json_object_push(res, "project_status", val);
+        }
+        // stop
+        else if (strcmp(cmd->u.string.ptr, "stop") == 0) {
+            val = project_status_map(stop(manager));
+            json_object_push(res, "project_status", val);
+        }
+        // unknown command
+        else {
+            val = json_string_new("unknown command");
+            json_object_push(res, "error", val);
+        }
+
+        send:
+        if (logging_level == debug)
+            json_object_push(res, "debug", obj);
+        
+        if (json_measure(res) > BUFLEN) {
+            fprintf(stderr, "main: Error: buffer length too small\n");
+            strcpy(buf, "{\"error\":\"system failure\"}");
+        } else {
+            json_serialize(buf, res);
+        }
+
+        if ((nbytes = send(client, buf, strlen(buf), 0)) == -1) {
+            perror("main: send");
+            close(client);
+            break;
+        }
+
+        if (logging_level == debug) {
+            json_builder_free(res);
+        } else {
+            json_builder_free(obj);
+            json_builder_free(res);
+        }
+    }
+    if (nbytes == -1) {
+        // To do. We need to return the errno to the calling thread
+        return NULL;
+    } else {
+        // To. We need to return 0 to the calling thread
+        return NULL;
+    }
 }

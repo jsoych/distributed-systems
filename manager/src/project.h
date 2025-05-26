@@ -7,7 +7,7 @@
 #define _PROJECT_COMPLETED 2
 #define MAXLEN 512
 
-#include "cJSON.h"
+#include "json.h"
 #include "job.h"
 
 // List structure
@@ -39,10 +39,8 @@ Project *create_project(int);
 void free_project(Project *);
 void add_job(Project *, Job *, int [], int);
 void remove_job(Project *, int);
-int get_job_status(Project *, int);
 int audit_project(Project *);
-list *schedule_jobs(Project *);
-cJSON *encode_project(Project *);
-Project *decode_project(cJSON *);
+json_value *encode_project(Project *);
+Project *decode_project(json_value *);
 
 #endif

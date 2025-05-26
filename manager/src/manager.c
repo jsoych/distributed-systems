@@ -319,8 +319,8 @@ static void *worker_thread(void *args) {
     return NULL;
 }
 
-/* add_crew_worker: Creates a workers and adds it to the crew. */
-void add_crew_worker(Crew *crew, int id) {
+/* add_worker: Creates a workers and adds it to the crew. */
+void add_worker(Crew *crew, int id) {
     int old_errno;
     if ((old_errno = pthread_mutex_lock(&crew->lock)) != 0) {
         fprintf(stderr, "manager: add_worker: pthread_mutex_lock: %s\n",
@@ -353,7 +353,7 @@ void add_crew_worker(Crew *crew, int id) {
     crew_node *curr = crew->workers.head;
     while (curr) {
         if (curr->worker->id == id) {
-            fprintf(stderr, "manager: Warning: Trying to add a worker with the same id\n");
+            fprintf(stderr, "manager: add_worker: Warning: Trying to add a worker with the same id\n");
             free_worker(node->worker);
             free(node);
             goto unlock;
@@ -743,7 +743,7 @@ static void sync_project(Manager *man) {
 static void *status_handler(void *arg) {
     Manager *man = (Manager *) arg;
     if (man->status == _MANAGER_NOT_WORKING)
-        return;
+        return NULL;
     if (man->running_project->project->status == _PROJECT_RUNNING)
         man->running_project->project->status = _PROJECT_INCOMPLETE;
     man->status = _MANAGER_NOT_WORKING;
@@ -869,8 +869,8 @@ static void *project_thread(void *args) {
             break;
         }
     }
-    pthread_cleanup_pop(0);
-    pthread_cleanup_pop(0);
+    pthread_cleanup_pop(1);
+    pthread_cleanup_pop(1);
     return NULL;
 }
 

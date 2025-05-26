@@ -102,7 +102,6 @@ typedef struct _manager {
 
 Manager *create_manager(int);
 void free_manager(Manager *);
-void add_worker(Manager *, int);
 
 // Comands and signals
 int run_project(Manager *, Project *);

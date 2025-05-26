@@ -116,15 +116,6 @@ void remove_job(Project *proj, int id) {
     return;
 }
 
-/* get_job_status: Gets the status of the job by its id and returns it.
-    Otherwise, returns -1. */
-int get_job_status(Project *proj, int id) {
-    ProjectNode *node;
-    if ((node = get_node(proj,id)) == NULL)
-        return -1;
-    return node->job->status;
-}
-
 // deque node
 static struct node {
     int val;
@@ -620,30 +611,69 @@ int audit_project(Project *proj) {
     return 0;
 }
 
-/* encode_project: Encodes the project with JSON. */
-cJSON *encode_project(Project *proj) {
-    cJSON *ret;
-    if ((ret = cJSON_CreateObject()) == NULL) {
-        fprintf(stderr, "project: encode_project: cJSON_CreateObject\n");
-        exit(EXIT_FAILURE);
+/* encode_project: Encodes the project into a JSON object. */
+json_value *encode_project(Project *proj) {
+    // Set up json-builder
+    json_settings settings;
+    settings.value_extra = json_builder_extra;
+
+    // Add id
+    json_value *obj = json_object_new(0);
+    json_object_push(obj, "id", json_integer_new(proj->id));
+
+    // Add jobs
+    int i;
+    json_value *job, *jobs, *deps, *val;
+    jobs = json_array_new(proj->len);
+    ProjectNode *curr = proj->jobs_list.head;
+    while (curr) {
+        val = json_object_new(0);
+        job = encode_job(curr->job);
+        json_object_push(val, "job", job);
+        deps = json_array_new(curr->len);
+        for (i = 0; i < curr->len; i++) {
+            json_array_push(deps, json_integer_new(curr->deps[i]));
+        }
+        json_object_push(val, "dependencies", deps);
+        json_array_push(jobs, val);
     }
+    json_object_push(obj, "jobs", jobs);
+    return obj;
+}
 
-    cJSON_AddNumberToObject(ret,"id",proj->id);
-    cJSON_AddNumberToObject(ret,"status",proj->status);
+/* json_get_value: Gets the value by its name from the JSON object and
+    returns it. Otherwise, it returns NULL. */
+static json_value *json_get_value(json_value *obj, char *name) {
+    if (obj->type != json_object)
+        return NULL;
+    for (int i = 0; i < obj->u.object.length; i++) {
+        if (strcmp(obj->u.object.values[i].name, name) == 0)
+            return obj->u.object.values[i].value;
+    }
+    return NULL;
+}
 
-    cJSON *obj, *item, *job, *jobs;
-    jobs = cJSON_CreateArray();
-    for (ProjectNode *curr = proj->jobs_list.head; curr; curr = curr->next) {
-        if ((item = cJSON_CreateObject()) == NULL) {
-            fprintf(stderr, "project: encode_project: cJSON_CreateObject\n");
+/* decode_project: Decodes the JSON object into a new project. */
+Project *decode_project(json_value *obj) {
+    json_value *id = json_get_value(obj, "id");
+    Project *proj = create_project(id->u.integer);
+
+    int j, len, *ids;
+    json_value *job, *deps;
+    json_value *jobs = json_get_value(obj, "jobs");
+    for (int i = 0; i < jobs->u.array.length; i++) {
+        job = json_get_value(job->u.array.values[i], "job");
+        deps = json_get_value(jobs->u.array.values[i], "dependencies");
+        len = deps->u.array.length;
+        if ((ids = malloc(sizeof(int) * len)) == NULL) {
+            perror("project: decode_project: malloc");
             exit(EXIT_FAILURE);
         }
-
-        if ((job = encode_job(curr->job)) == NULL) {
-            fprintf(stderr, "project: encode_project: encode_job\n");
-            exit(EXIT_FAILURE);
+        for (j = 0; j < len; j++) {
+            ids[j] = deps->u.array.values[j]->u.integer;
         }
-        
-        cJSON_AddObjectToObject(item,job);
+        add_job(proj, decode_job(job), ids, len);
+        free(ids);
     }
+    return proj;
 }
