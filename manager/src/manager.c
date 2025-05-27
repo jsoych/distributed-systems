@@ -4,8 +4,6 @@
 #include <unistd.h>
 #include <sys/socket.h>
 #include <sys/un.h>
-#include "json.h"
-#include "json-builder.h"
 #include "manager.h"
 
 #define BUFLEN 1024
@@ -507,7 +505,7 @@ static RunningProject *create_running_project(Manager *man, Project *proj) {
 
     int i;
     RunningProjectNode *node;
-    for (ProjectNode *pn = proj->jobs_list.head; pn; pn = pn->next) {
+    for (ProjectNode *pn = proj->jobs.head; pn; pn = pn->next) {
         if ((node = malloc(sizeof(RunningProjectNode))) == NULL) {
             perror("manager: run_project: malloc");
             exit(EXIT_FAILURE);

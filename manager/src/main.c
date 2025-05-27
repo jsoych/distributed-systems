@@ -85,10 +85,11 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    struct sockaddr_storage client_addr;
-    socklen_t addr_len;
     int old_errno, clients[BACKLOG];
-    for (int idx = 0; 1; idx = (idx++) % BACKLOG) {
+    pthread_t manager_tids[BACKLOG];
+    socklen_t addr_len;
+    struct sockaddr_storage client_addr;
+    for (int idx = 0; 1; idx = (idx + 1) % BACKLOG) {
         // Accept client connections
         if ((clients[idx] = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
@@ -96,7 +97,7 @@ int main(int argc, char *argv[]) {
         }
 
         // Create manager thread
-        if ((old_errno = pthread_create(NULL, NULL, manager_thread, &clients[idx])) != 0) {
+        if ((old_errno = pthread_create(&manager_tids[idx], NULL, manager_thread, &clients[idx])) != 0) {
             fprintf(stderr, "main: pthread_create: %s\n", strerror(old_errno));
             exit(EXIT_FAILURE);
         }

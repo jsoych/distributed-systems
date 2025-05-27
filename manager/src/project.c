@@ -14,8 +14,8 @@ Project *create_project(int id) {
     proj->id = id;
     proj->status = _PROJECT_NOT_READY;
     proj->len = 0;
-    proj->jobs_list.head = NULL;
-    proj->jobs_list.tail = NULL;
+    proj->jobs.head = NULL;
+    proj->jobs.tail = NULL;
     for (int i = 0; i < MAXLEN; i++) {
         proj->jobs_table[i] = NULL;
     }
@@ -26,7 +26,7 @@ Project *create_project(int id) {
 void free_project(Project *proj) {
     if (proj->len == 0)
         free(proj);
-    ProjectNode *curr = proj->jobs_list.head;
+    ProjectNode *curr = proj->jobs.head;
     while (curr->next) {
         free_job(curr->job);
         free(curr->deps);
@@ -65,15 +65,15 @@ void add_job(Project *proj, Job *job, int ids[], int len) {
 
     // Add new_node to the jobs list
     node->next = NULL;
-    node->prev = proj->jobs_list.tail;
+    node->prev = proj->jobs.tail;
     if (proj->len == 0) {
-        proj->jobs_list.head = node;
-        proj->jobs_list.tail = node;
+        proj->jobs.head = node;
+        proj->jobs.tail = node;
         proj->len++;
         return;
     }
-    proj->jobs_list.tail->next = node;
-    proj->jobs_list.tail = node;
+    proj->jobs.tail->next = node;
+    proj->jobs.tail = node;
     proj->len++;
     return;
 }
@@ -103,12 +103,12 @@ void remove_job(Project *proj, int id) {
     if (node->prev) {
         node->prev->next = node->next;
     } else {
-        proj->jobs_list.head = node->next;
+        proj->jobs.head = node->next;
     }
     if (node->next) {
         node->next->prev = node->prev;
     } else {
-        proj->jobs_list.tail = node->prev;
+        proj->jobs.tail = node->prev;
     }
     free_job(node->job);
     free(node->deps);
@@ -268,7 +268,7 @@ static struct table *create_table() {
 // free_table: Frees the memory allocated to the table.
 static void free_table(struct table *t) {
     for (int i = 0; i < MAXLEN; i++)
-        free_dequeue(t->buckets[i]);
+        free_deque(t->buckets[i]);
     free(t);
 }
 
@@ -481,7 +481,7 @@ static int in_path(struct path *p, int v) {
 static struct path *get_cycle(struct project *proj, int id) {
     ProjectNode *node = get_node(proj,id);
     if (node == NULL)
-        return;
+        return NULL;
     
     // Create data structures
     struct path *path = create_path();
@@ -555,7 +555,7 @@ int audit_project(Project *proj) {
     // Check for missing jobs
     struct deque *job_ids = create_deque();
     struct table *deps_ids = create_table();
-    ProjectNode *curr = proj->jobs_list.head;
+    ProjectNode *curr = proj->jobs.head;
 
     int i;
     while (curr) {
@@ -564,7 +564,7 @@ int audit_project(Project *proj) {
         curr = curr->next;
     }
 
-    curr = proj->jobs_list.head;
+    curr = proj->jobs.head;
     while (curr) {
         if (search(deps_ids,curr->job->id) == 0)
             append(job_ids,curr->job->id);
@@ -589,7 +589,7 @@ int audit_project(Project *proj) {
 
     // Check for cycle
     struct path *cycle;
-    curr = proj->jobs_list.head;
+    curr = proj->jobs.head;
     while (curr) {
         if ((cycle = get_cycle(proj,curr->job->id)) != NULL)
             break;
@@ -625,7 +625,7 @@ json_value *encode_project(Project *proj) {
     int i;
     json_value *job, *jobs, *deps, *val;
     jobs = json_array_new(proj->len);
-    ProjectNode *curr = proj->jobs_list.head;
+    ProjectNode *curr = proj->jobs.head;
     while (curr) {
         val = json_object_new(0);
         job = encode_job(curr->job);

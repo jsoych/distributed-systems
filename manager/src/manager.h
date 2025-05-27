@@ -24,7 +24,7 @@ typedef enum {
 } job_status;
 
 // Job structure
-typedef struct _job {
+typedef struct _manager_job {
     int id;
     job_status status;
 } job;
@@ -63,13 +63,6 @@ typedef struct _crew {
     pthread_t tid;
 } Crew;
 
-// queue structure
-typedef struct _queue {
-    RunningProjectNode *head;
-    RunningProjectNode *tail;
-    int len;
-} queue;
-
 // RunningProjectNode
 typedef struct _running_project_node {
     int worker_id;
@@ -79,6 +72,13 @@ typedef struct _running_project_node {
     struct _running_project_node *next;
     struct _running_project_node *prev;
 } RunningProjectNode;
+
+// queue structure
+typedef struct _queue {
+    RunningProjectNode *head;
+    RunningProjectNode *tail;
+    int len;
+} queue;
 
 // RunningProject object
 typedef struct _running_project {

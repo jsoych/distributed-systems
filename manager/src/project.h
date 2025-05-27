@@ -7,14 +7,9 @@
 #define _PROJECT_COMPLETED 2
 #define MAXLEN 512
 
-#include "json.h"
 #include "job.h"
-
-// List structure
-typedef struct _list {
-    ProjectNode *head;
-    ProjectNode *tail;
-} list;
+#include "json.h"
+#include "json-builder.h"
 
 // ProjectNode
 typedef struct _project_node {
@@ -26,12 +21,18 @@ typedef struct _project_node {
     struct _project_node *next_ent;
 } ProjectNode;
 
+// List structure
+typedef struct _jobs_list {
+    ProjectNode *head;
+    ProjectNode *tail;
+} jobs_list;
+
 // Project Object
 typedef struct _project {
     int id;
     int status;
     int len;
-    list jobs_list;
+    jobs_list jobs;
     ProjectNode *jobs_table[MAXLEN];
 } Project;
 

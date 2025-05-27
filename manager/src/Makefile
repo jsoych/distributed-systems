@@ -3,7 +3,7 @@ cflags = -Wall -Wextra -Wpedantic
 src_dir = .
 build_dir = .
 
-objs = main.o manager.o project.o json-bulider.o json.o
+objs = main.o manager.o project.o job.o task.o json-builder.o json.o
 
 ifeq ($(shell uname),Darwin)
 	cc = clang
@@ -19,19 +19,25 @@ ifeq ($(shell uname),Linux)
 	var = /var/log/pyoneer
 endif
 
-worker: $(objs)
-	$(cc) $(cflags) $^ -o worker
+manager: $(objs)
+	$(cc) $(cflags) $^ -o manager
 
-main.o: worker.h json.h json-builder.h main.c
+main.o: manager.h project.h json.h json-builder.h main.c
 	$(cc) $(cflags) -c main.c
 
 manager.o: manager.h project.h manager.c
-	$(cc) $(cflags) -c manager.cc
+	$(cc) $(cflags) -c manager.c
 
-project.o: project.h job.h project.c
+project.o: project.h job.h json.h json-builder.h project.c
 	$(cc) $(cflags) -c project.c
 
-json-buider.o: json-builder.h json.h json-builder.c
+job.o: job.h task.h job.c
+	$(cc) $(cflags) -c job.c
+
+task.o: task.h task.c
+	$(cc) $(cflags) -c task.c
+
+json-builder.o: json-builder.h json.h json-builder.c
 	$(cc) $(cflags) -c json-builder.c
 
 json.o: json.h json.c
@@ -46,7 +52,7 @@ install:
 	mkdir -p $(bin)
 	mkdir -p $(run)
 	mkdir -p $(var)
-	mv worker $(bin)
+	mv manager $(bin)
 
 uninstall:
 	rm -i $(bin)/manager $(run)/manager*.socket $(var)/manager*.log
