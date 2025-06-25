@@ -28,6 +28,24 @@ json_value *manager_status_map(int);
 json_value *project_status_map(int);
 void *manager_thread(void *arg);
 
+struct client_node {
+    int sd;
+    pthread_t tid;
+    struct client_node *next;
+    struct client_node *prev;
+};
+
+struct client_list {
+    struct client_node *head;
+    int len;
+    pthread_mutex_t lock;
+};
+
+void init_client_list(struct client_list *);
+void free_client_list(struct client_list *);
+struct client_node *add_client(struct client_list *, int);
+void remove_node(struct client_list *, struct client_node *);
+
 int main(int argc, char *argv[]) {
     // Check arguments
     if (argc != 3) {
@@ -70,11 +88,6 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    if (unlink(addr.sun_path) == -1) {
-        perror("main: unlink");
-        exit(EXIT_FAILURE);
-    }
-
     if (bind(serv, (struct sockaddr *) &addr, sizeof(addr)) == -1) {
         perror("main: bind");
         exit(EXIT_FAILURE);
@@ -85,24 +98,33 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int old_errno, clients[BACKLOG];
-    pthread_t manager_tids[BACKLOG];
+    int old_errno, sd;
     socklen_t addr_len;
+    struct client_list clients;
+    struct client_node *node;
+    init_client_list(&clients);
     struct sockaddr_storage client_addr;
-    for (int idx = 0; 1; idx = (idx + 1) % BACKLOG) {
+    for (;;) {
         // Accept client connections
-        if ((clients[idx] = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
+        if ((sd = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
             exit(EXIT_FAILURE);
         }
+        node = add_client(&clients, sd);
 
         // Create manager thread
-        if ((old_errno = pthread_create(&manager_tids[idx], NULL, manager_thread, &clients[idx])) != 0) {
+        if ((old_errno = pthread_create(&node->tid, NULL, manager_thread, &node->sd)) != 0) {
             fprintf(stderr, "main: pthread_create: %s\n", strerror(old_errno));
             exit(EXIT_FAILURE);
         }
     }
+    free_client_list(&clients);
 
+    if (unlink(addr.sun_path) == -1) {
+        perror("main: unlink");
+        exit(EXIT_FAILURE);
+    }
+    exit(EXIT_SUCCESS);
 }
 
 /* manager_status_map: Maps manager status codes to its corresponding
@@ -150,7 +172,7 @@ json_value *project_status_map(int status) {
 /* json_get_value */
 json_value *json_get_value(json_value *obj, char *name) {
     json_value *val = NULL;
-    for (int i = 0; i < obj->u.object.length; i++) {
+    for (unsigned int i = 0; i < obj->u.object.length; i++) {
         if (strcmp(obj->u.object.values[i].name, name) == 0) {
             val = obj->u.object.values[i].value;
             break;
@@ -280,4 +302,99 @@ void *manager_thread(void *arg) {
         // To. We need to return 0 to the calling thread
         return NULL;
     }
+}
+
+/* init_client_list: Initializes the list. */
+void init_client_list(struct client_list *l) {
+    int err;
+    l->head = NULL;
+    l->len = 0;
+    if ((err = pthread_mutex_init(&l->lock, NULL)) == -1) {
+        fprintf(stderr, "main: init_client_list: pthread_mutex_init: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+/* add_client: Adds a new client to the list and returns a pointer to the
+    newly created node. */
+struct client_node *add_client(struct client_list *l, int sd) {
+    int err;
+    struct client_node *node;
+    if ((node = malloc(sizeof(struct client_node))) == NULL) {
+        perror("main: add_client: malloc");
+        exit(EXIT_FAILURE);
+    }
+    node->sd = sd;
+    node->prev = NULL;
+    if ((err = pthread_mutex_lock(&l->lock)) != 0) {
+        fprintf(stderr, "main: add_client: pthread_mutex_lock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    node->next = l->head;
+    l->head = node;
+    l->len++;
+    if ((err = pthread_mutex_unlock(&l->lock)) != 0) {
+        fprintf(stderr, "main: add_client: pthread_mutex_unlock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    return node;
+}
+
+/* remove_node: Removes the node from the list. */
+void remove_node(struct client_list *l, struct client_node *n) {
+    int err;
+    if ((err = pthread_mutex_lock(&l->lock)) != 0) {
+        fprintf(stderr, "main: remove_node: pthread_mutex_lock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    l->len--;
+    if (l->len == 0)
+        l->head = NULL;
+    if (n->prev)
+        n->prev->next = n->next;
+    else
+        l->head = n->next;
+    if (n->next)
+        n->next->prev = n->prev;
+    if ((err == pthread_mutex_unlock(&l->lock)) != 0) {
+        fprintf(stderr, "main: remove_node: pthread_mutex_unlock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    free(n);
+    return;
+}
+
+/* free_client_list: Frees all of the resources allocated to the list. */
+void free_client_list(struct client_list *l) {
+    int err;
+    if ((err = pthread_mutex_lock(&l->lock)) != 0) {
+        fprintf(stderr, "main: free_client_list: pthread_mutex_lock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    if (l->len == 0)
+        goto unlock;
+    
+    struct client_node *curr = l->head;
+    while (curr->next) {
+        if ((err = pthread_cancel(curr->tid)) != 0)
+            fprintf(stderr, "main: free_client_list: pthread_cancel: %s\n", strerror(err));
+        curr = curr->next;
+        free(curr->prev);
+    }
+    if ((err = pthread_cancel(curr->tid)) != 0)
+        fprintf(stderr, "main: free_client_list: pthread_cancel: %s\n", strerror(err));
+    free(curr);
+
+    unlock:
+    if ((err = pthread_mutex_unlock(&l->lock)) != 0) {
+        fprintf(stderr, "main: free_client_list: pthread_mutex_unlock: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+
+    if ((err = pthread_mutex_destroy(&l->lock)) != 0) {
+        fprintf(stderr, "main: free_client_list: pthread_mutex_destroy: %s\n", strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    return;
 }

@@ -489,21 +489,26 @@ static Job *get_job(Project *proj, int id) {
 }
 
 /* create_running_project: Creates a new running project. */
-static RunningProject *create_running_project(Manager *man, Project *proj) {
+static RunningProject *create_running_project(Manager *man) {
     RunningProject *rproj;
     if ((rproj = malloc(sizeof(RunningProject))) == NULL) {
         perror("manager: create_running_project: malloc");
         exit(EXIT_FAILURE);
     }
     rproj->manager = man;
-    rproj->project = proj;
+    rproj->project = NULL;
     init_queue(&rproj->not_ready_jobs);
     init_queue(&rproj->ready_jobs);
     init_queue(&rproj->running_jobs);
     init_queue(&rproj->completed_jobs);
     init_queue(&rproj->incomplete_jobs);
+    return rproj;
+}
 
-    int i;
+/* bind_project: Binds the running project and project together, and
+    changes the manager status to assigned. */
+static void bind_project(RunningProject *rproj, Project *proj) {
+    rproj->project = proj;
     RunningProjectNode *node;
     for (ProjectNode *pn = proj->jobs.head; pn; pn = pn->next) {
         if ((node = malloc(sizeof(RunningProjectNode))) == NULL) {
@@ -516,7 +521,7 @@ static RunningProject *create_running_project(Manager *man, Project *proj) {
             perror("manager: run_project: malloc");
             exit(EXIT_FAILURE);
         }
-        for (i = 0; i < pn->len; i++) {
+        for (int i = 0; i < pn->len; i++) {
             node->deps[i] = get_job(proj, pn->deps[i]);
         }
         node->len = pn->len;
@@ -539,12 +544,26 @@ static RunningProject *create_running_project(Manager *man, Project *proj) {
                 break;
         }
     }
-    return rproj;
+    rproj->manager->status = _MANAGER_ASSIGNED;
+    return;
+}
+
+/* unbind_project: Unbinds the running project and the project, changes the
+    manager status to not assigned, and returns the project. */
+static Project *unbind_project(RunningProject *rproj) {
+    rproj->manager->status = _MANAGER_NOT_ASSIGNED;
+    destroy_queue(&rproj->not_ready_jobs);
+    destroy_queue(&rproj->ready_jobs);
+    destroy_queue(&rproj->running_jobs);
+    destroy_queue(&rproj->completed_jobs);
+    destroy_queue(&rproj->incomplete_jobs);
+    return rproj->project;
 }
 
 /* free_running_project: Frees all resources allocated to the running
     project. */
 static void free_running_project(RunningProject *rproj) {
+    free_project(rproj->project);
     destroy_queue(&rproj->not_ready_jobs);
     destroy_queue(&rproj->ready_jobs);
     destroy_queue(&rproj->running_jobs);
@@ -562,26 +581,54 @@ Manager *create_manager(int id) {
         exit(EXIT_SUCCESS);
     }
     man->id = id;
-    man->status = _MANAGER_NOT_WORKING;
+    man->status = _MANAGER_NOT_ASSIGNED;
     man->crew = create_crew();
-    man->running_project = create_running_project(man, NULL);
+    man->running_project = create_running_project(man);
+    if (sem_init(&man->lock, 0, 0) == -1) {
+        perror("manager: create_manager: sem_init");
+        exit(EXIT_FAILURE);
+    }
     return man;
 }
 
 /* get_status: Gets the manager status. */
 int get_status(Manager *man) {
-    return man->status;
+    int status;
+    if (sem_wait(&man->lock) == -1) {
+        perror("manager: get_status: sem_wait");
+        exit(EXIT_FAILURE);
+    }
+    status = man->status;
+    if (sem_post(&man->lock) == -1) {
+        perror("manager: get_status: sem_post");
+        exit(EXIT_FAILURE);
+    }
+    return status;
 }
 
-/* get_project_status: Gets the status of the running project. */
+/* get_project_status: Gets and returns the project. If the manager
+    is not assigned a project, then get_project_status returns -1. */
 int get_project_status(Manager *man) {
-    if (man->running_project->project == NULL)
-        return -1;
-    return man->running_project->project->status;
+    int status;
+    if (sem_wait(&man->lock) == -1) {
+        perror("manager: get_project_status: sem_wait");
+        exit(EXIT_FAILURE);
+    }
+
+    if (man->status == _MANAGER_NOT_ASSIGNED)
+        status = -1;
+    else
+        status = man->running_project->project->status;
+    
+    if (sem_post(&man->lock) == -1) {
+        perror("manager: get_project_status: sem_post");
+        exit(EXIT_FAILURE);
+    }
+    return status;
 }
 
-/* assign: Assigns a job to a worker in the crew and returns 0. Otherwise,
-    returns -1. */
+/* assign_job: Assigns a job to a worker in the crew and returns 0. Otherwise
+    return -1. */
 static int assign_job(Manager *man, Job *job) {
     int old_errno, nbytes, sockfd, ret;
     if ((old_errno = pthread_mutex_lock(&man->crew->lock)) != 0) {
@@ -873,71 +920,112 @@ static void *project_thread(void *args) {
 }
 
 /* run_project: Runs the project and returns 0. If the manager is working
-    run_project returns -1. */
+    or the project is not ready, it returns -1. */
 int run_project(Manager *man, Project *proj) {
-    if (proj->status != _PROJECT_READY)
-        return -1;
+    int ret = 0;
+    if (sem_wait(&man->lock) == -1) {
+        perror("manager: run_project: sem_wait");
+        exit(EXIT_FAILURE);
+    }
+
+    if (man->status == _MANAGER_WORKING) {
+        ret = -1;
+        goto unlock;
+    }
+
+    if (proj->status != _PROJECT_READY) {
+        ret = -1;
+        goto unlock;
+    }
 
     // Audit project
     if (audit_project(proj) != -1) {
         fprintf(stderr, "manager: run_project: audit_project: Project has circular dependencies\n");
         proj->status = _PROJECT_NOT_READY;
-        return -1;
+        ret = -1;
+        goto unlock;
     }
 
-    // Create project thread
-    RunningProject *rproj = create_running_project(man, proj);    
+    // Assign project to the manager
+    if (man->status == _MANAGER_ASSIGNED)
+        free_project(unbind_project(man->running_project));
+    bind_project(man->running_project, proj);
+    
     int old_errno;
-    if ((old_errno = pthread_create(&rproj->tid, NULL, project_thread, rproj)) != 0) {
+    if ((old_errno = pthread_create(&man->running_project->tid, NULL, project_thread, man->running_project)) != 0) {
         fprintf(stderr, "manager: run_project: pthread_create: %s\n", strerror(old_errno));
         exit(EXIT_FAILURE);
     }
     man->status = _MANAGER_WORKING;
-    return 0;
+
+    unlock:
+    if (sem_post(&man->lock) == -1) {
+        perror("manager: run_project: sem_post");
+        exit(EXIT_FAILURE);
+    }
+    return ret;
 }
 
-/* start: Starts the running project and returns the project status.
-    If the running project is NULL, start returns -1. */
+/* start: Starts the running project and returns the project status. */
 int start(Manager *man) {
-    if (man->running_project == NULL)
-        return -1;
-    
-    if (man->status == _MANAGER_WORKING)
-        return man->running_project->project->status;
-    
-    int old_errno;
-    if (man->running_project->project->status == _PROJECT_READY) {
-        if ((old_errno = pthread_create(&man->running_project->tid, NULL, project_thread, man->running_project)) != 0) {
-            fprintf(stderr, "manager: start: %s\n", strerror(old_errno));
-            exit(EXIT_FAILURE);
-        }
+    if (sem_wait(&man->lock) == -1) {
+        perror("manager: start: sem_wait");
+        exit(EXIT_FAILURE);
     }
-    return man->running_project->project->status;
+
+    if (man->status == _MANAGER_NOT_ASSIGNED || man->status == _MANAGER_WORKING)
+        goto unlock;
+    
+    if (man->running_project->project->status != _PROJECT_READY)
+        goto unlock;
+
+    int old_errno;
+    if ((old_errno = pthread_create(&man->running_project->tid, NULL, project_thread, man->running_project)) != 0) {
+        fprintf(stderr, "manager: start: %s\n", strerror(old_errno));
+        exit(EXIT_FAILURE);
+    }
+    
+    unlock:
+    if (sem_post(&man->lock) == -1) {
+        perror("manager: start: sem_post");
+        exit(EXIT_FAILURE);
+    }
+    return get_job_status(man);
 }
 
 /* stop: Stops the running project and returns the project status. If
     the running project is NULL, stop returns -1. */
 int stop(Manager *man) {
-    if (man->running_project == NULL)
-        return -1;
-    
-    if (man->status == _MANAGER_NOT_WORKING)
-        return man->running_project->project->status;
+    if (sem_wait(&man->lock) == -1) {
+        perror("manager: stop: sem_wait");
+        exit(EXIT_FAILURE);
+    }
+
+    if (man->status != _MANAGER_WORKING)
+        goto unlock;
     
     int old_errno;
     if ((old_errno = pthread_cancel(man->running_project->tid)) != 0) {
         fprintf(stderr, "manager: stop: %s\n", strerror(old_errno));
     }
-    return man->running_project->project->status;
-}
 
+    unlock:
+    if (sem_post(&man->lock) == -1) {
+        perror("manager: stop: sem_post");
+        exit(EXIT_FAILURE);
+    }
+    return get_project_status(man);
+}
 
 /* free_manager: Frees the memory allocated to the manager. */
 void free_manager(Manager *man) {
-    if (man->status == _MANAGER_WORKING)
-        stop(man);
+    stop(man);
     free_crew(man->crew);
     free_running_project(man->running_project);
+    if (sem_destroy(&man->lock) == -1) {
+        perror("manager: free_manager: sem_destroy");
+        exit(EXIT_FAILURE);
+    }
     free(man);
     return;
 }

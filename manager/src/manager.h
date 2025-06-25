@@ -1,9 +1,12 @@
 #ifndef _MANAGER_H
 #define _MANAGER_H
+#define _MANAGER_NOT_ASSIGNED 2
+#define _MANAGER_ASSIGNED 3
 #define _MANAGER_NOT_WORKING 0
 #define _MANAGER_WORKING 1
 
 #include <pthread.h>
+#include <semaphore.h>
 #include "project.h"
 
 // worker statuses
@@ -23,7 +26,7 @@ typedef enum {
     job_incomplete
 } job_status;
 
-// Job structure
+// job structure
 typedef struct _manager_job {
     int id;
     job_status status;
@@ -98,6 +101,7 @@ typedef struct _manager {
     int status;
     Crew *crew;
     RunningProject *running_project;
+    sem_t lock;
 } Manager;
 
 Manager *create_manager(int);

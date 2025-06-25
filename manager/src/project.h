@@ -21,13 +21,13 @@ typedef struct _project_node {
     struct _project_node *next_ent;
 } ProjectNode;
 
-// List structure
+// jobs list structure
 typedef struct _jobs_list {
     ProjectNode *head;
     ProjectNode *tail;
 } jobs_list;
 
-// Project Object
+// Project object
 typedef struct _project {
     int id;
     int status;
