@@ -20,7 +20,7 @@ ifeq ($(shell uname),Linux)
 endif
 
 worker: $(objs)
-	$(cc) $(cflags) $^ -o worker
+	$(cc) $(cflags) $^ -lm -o worker
 
 main.o: worker.h json.h main.c
 	$(cc) $(cflags) -c main.c

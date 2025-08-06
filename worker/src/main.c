@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
 #include <string.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -21,10 +23,12 @@ enum {
 json_value *worker_status_map(int);
 json_value *job_status_map(int);
 json_value *json_get_value(json_value *, char *);
+void signal_handler(int);
 
 // Globals
 char buf[BUFLEN];
 int logging_level;
+volatile sig_atomic_t sig_flag;
 
 int main(int argc, char *argv[]) {
     // Check argument
@@ -43,19 +47,6 @@ int main(int argc, char *argv[]) {
     else
         logging_level = info;
     
-    // Create logging file
-    bzero(buf, BUFLEN);
-#ifdef __APPLE__
-    sprintf(buf, "/Users/leejahsprock/pyoneer/var/log/worker%d.log", worker->id);
-#elif __linux__
-    sprintf(buf, "/var/log/pyoneer/worker%d.log", worker->id);
-#endif
-    int logfd;
-    if ((logfd = open(buf, O_CREAT | O_APPEND | O_WRONLY, 0666)) == -1) {
-        perror("main: open");
-        exit(EXIT_FAILURE);
-    }
-
     // Create a local socket
     struct sockaddr_un addr;
     bzero(&addr, sizeof(addr));
@@ -70,21 +61,28 @@ int main(int argc, char *argv[]) {
 #elif __linux__
     snprintf(
         addr.sun_path,
-        "/run/pyoneer/worker%d.socket",
-        worker->id,
-        sizeof(addr.sun_path)
+        sizeof(addr.sun_path),
+        "/home/jsoychak/pyoneer/run/worker%d.socket",
+        worker->id
     );
 #endif
+
+    // Set signal handler
+    sig_flag = 0;
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("main: sigaction");
+        exit(EXIT_FAILURE);
+    }
     
     // Create unix socket
     int serv;
     if ((serv = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
-        exit(EXIT_FAILURE);
-    }
-
-    if (unlink(addr.sun_path) == -1) {
-        perror("main: unlink");
         exit(EXIT_FAILURE);
     }
 
@@ -105,17 +103,17 @@ int main(int argc, char *argv[]) {
     json_settings settings;
     settings.value_extra = json_builder_extra;
     char error[128];
-    while (1) {
+    while (sig_flag == 0) {
         // Accept client connection
         if ((client = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
             perror("main: accept");
-            exit(EXIT_FAILURE);
+            continue;
         }
 
         while ((nbytes = recv(client, buf, BUFLEN, BUFLEN)) > 0) {
             buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
             if ((res = json_object_new(0)) == NULL) {
-                dprintf(logfd, "main: json_object_new: Error: Unable to create new JSON object\n");
+                fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
                 close(client);
                 close(serv);
                 exit(EXIT_FAILURE);
@@ -197,7 +195,7 @@ int main(int argc, char *argv[]) {
                 json_object_push(res, "debug", obj);
             
             if (json_measure(res) > BUFLEN) {
-                dprintf(logfd, "main: Error: Buffer length too small\n");
+                fprintf(stderr, "main: Error: Buffer length too small\n");
                 strcpy(buf, "{\"error\":\"API failure\"}");
             } else {
                 json_serialize(buf, res);
@@ -232,9 +230,10 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-#if __linux__
-    close(logfd);
-#endif
+    if (unlink(addr.sun_path) == -1) {
+        perror("main: unlink");
+        exit(EXIT_FAILURE);
+    }
 
     free_worker(worker);
     if (job != NULL)
@@ -281,11 +280,20 @@ json_value *job_status_map(int status) {
 /* json_get_value */
 json_value *json_get_value(json_value *obj, char *name) {
     json_value *val = NULL;
-    for (int i = 0; i < obj->u.object.length; i++) {
+    for (unsigned int i = 0; i < obj->u.object.length; i++) {
         if (strcmp(obj->u.object.values[i].name, name) == 0) {
             val = obj->u.object.values[i].value;
             break;
         }
     }
     return val;
+}
+
+/* signal_handler: Raises the sig_flag. */
+void signal_handler(int signo) {
+    switch (signo) {
+        case SIGINT: sig_flag = 1; break;
+        default: sig_flag = 1; break;
+    }
+    return;
 }

@@ -1055,3 +1055,15 @@ void json_value_free (json_value * value)
    settings.mem_free = default_free;
    json_value_free_ex (&settings, value);
 }
+
+/* json_get_value: Gets the value by its name from the JSON object and
+    returns it. Otherwise, it returns NULL. */
+json_value * json_get_value(json_value * obj, char *name)
+{
+   for (unsigned int i = 0; i < obj->u.object.length; ++i)
+   {
+      if (strcmp(obj->u.object.values[i].name, name) == 0)
+         return obj->u.object.values[i].value;
+   }
+   return NULL;
+}

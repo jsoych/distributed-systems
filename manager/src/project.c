@@ -12,7 +12,7 @@ Project *create_project(int id) {
         exit(EXIT_FAILURE);
     }
     proj->id = id;
-    proj->status = _PROJECT_NOT_READY;
+    proj->status = _PROJECT_READY;
     proj->len = 0;
     proj->jobs.head = NULL;
     proj->jobs.tail = NULL;
@@ -24,9 +24,11 @@ Project *create_project(int id) {
 
 // free_project: Frees the memory allocated to the project.
 void free_project(Project *proj) {
-    if (proj->len == 0)
+    if (proj->len == 0){
         free(proj);
-    ProjectNode *curr = proj->jobs.head;
+        return;
+    }
+    project_node *curr = proj->jobs.head;
     while (curr->next) {
         free_job(curr->job);
         free(curr->deps);
@@ -42,13 +44,13 @@ void free_project(Project *proj) {
 
 // add_job: Adds the job to the list with the ids of its dependencies.
 void add_job(Project *proj, Job *job, int ids[], int len) {
-    ProjectNode *node, *ent;
-    if ((node = malloc(sizeof(ProjectNode))) == -1) {
+    ProjectNode *node;
+    if ((node = malloc(sizeof(ProjectNode))) == NULL) {
         perror("project: add_job: malloc");
         exit(EXIT_FAILURE);
     }
     int *deps;
-    if ((deps = malloc(sizeof(int) * len)) == -1) {
+    if ((deps = malloc(sizeof(int) * len)) == NULL) {
         perror("project: add_job: malloc");
         exit(EXIT_FAILURE);
     }
@@ -116,66 +118,67 @@ void remove_job(Project *proj, int id) {
     return;
 }
 
+/* get_job: Gets the job from the project and returns it. */
+static Job *get_job(Project *proj, int id) {
+    ProjectNode *ent =  proj->jobs_table[id % MAXLEN]; 
+    while (ent->job->id != id)
+        ent = ent->next_ent;
+    return ent->job;
+}
+
 // deque node
-static struct node {
+static struct deque_node {
     int val;
-    struct node *next;
-    struct node *prev;
+    struct deque_node *next;
+    struct deque_node *prev;
 };
 
 // deque
 static struct deque {
     int len;
-    struct node *head;
-    struct node *tail;
+    struct deque_node *head;
+    struct deque_node *tail;
 };
 
-// create_queue: Creates a new deque.
-static struct deque *create_deque() {
-    struct deque *d;
-    if ((d = malloc(sizeof(struct deque))) == -1) {
-        perror("project: create_dequeue: malloc");
-        exit(EXIT_FAILURE);
-    }
-
+// init_deque: Initializes the deque.
+static void init_deque(struct deque *d) {
     d->len = 0;
     d->head = NULL;
     d->tail = NULL;
-
-    return d;
+    return;
 }
 
 // free_queue: Frees all of the deque memory.
 static void free_deque(struct deque *d) {
-    struct node *curr, *prev;
-    if (d->len == 0) {
-        free(d);
+    if (d->len == 0)
         return;
-    }
-
-    curr = d->head->next;
-    prev = d->head;
-    while (curr) {
-        free(prev);
-        prev = curr;
+    d->len = 0;
+    struct deque_node *curr;
+    curr = d->head;
+    while (curr->next) {
         curr = curr->next;
+        free(curr->prev);
     }
-    free(prev);
+    free(curr);
+    return;
 }
 
 // push: Adds a new node to the head of the deque.
 static void push(struct deque *d, int v) {
-    struct node *new_node;
-    if ((new_node = malloc(sizeof(struct node))) == -1) {
+    struct deque_node *n;
+    if ((n = malloc(sizeof(struct deque_node))) == NULL) {
         perror("project: push: malloc");
         exit(EXIT_FAILURE);
     }
-
-    new_node->val = v;
-    new_node->next = d->head;
-    d->head->prev = new_node;
-    d->head = new_node;
+    n->val = v;
+    n->next = d->head;
+    if (d->len == 0)
+        d->tail = n;
+    if (d->len > 0)
+        d->head->prev = n;
+    d->head = n;
     d->len++;
+    return;
 }
 
 /* dequeue: Removes the last node from the deque and returns its value.
@@ -184,58 +187,62 @@ static int dequeue(struct deque *d) {
     if (d->len == 0)
         return -1;
     
-    int ret = d->tail->val;
+    int r = d->tail->val;
     if (d->len-- == 1) {
         free(d->tail);
         d->head = NULL;
         d->tail = NULL;
-        return ret;
+        return r;
     }
-
     d->tail = d->tail->prev;
     free(d->tail->next);
     d->tail->next = NULL;
-    return ret;
+    return r;
 }
 
 // append: Adds a new node to the tail of the deque.
 static void append(struct deque *d, int v) {
-    struct node *new_node;
-    if ((new_node = malloc(sizeof(struct node))) == -1) {
+    struct deque_node *n;
+    if ((n = malloc(sizeof(struct deque_node))) == NULL) {
         perror("project: queue: malloc");
         exit(EXIT_SUCCESS);
     }
-    new_node->val = v;
-    new_node->next = NULL;
-    new_node->prev = d->tail;
-    d->tail->next = new_node;
-    d->tail = new_node;
+    n->val = v;
+    n->next = NULL;
+    n->prev = d->tail;
+    if (d->len == 0)
+        d->head = n;
+    if (d->len > 0)
+        d->tail->next = n;
+    d->tail = n;
     d->len++;
+    return;
 }
 
-// pop: Removes the first node from the deque and returns its value.
+/* pop: Removes the first node from the deque and returns its value. Otherwise,
+    it returns -1. */
 static int pop(struct deque *d) {
+    int r = -1;
     if (d->len == 0)
         return -1;
 
-    int ret = d->head->val;
+    r = d->head->val;
     if (d->len-- == 1) {
         free(d->head);
         d->head = NULL;
         d->tail = NULL;
-        return ret;
+        return r;
     }
-
     d->head = d->head->next;
     free(d->head->prev);
     d->head->prev = NULL;
-    return ret;
+    return r;
 }
 
 /* find: Searches for the value and returns 1, if the value is in the
     dequeue. Otherwise, it returns 0. */
 static int find(struct deque *d, int v) {
-    struct node *curr = d->head;
+    struct deque_node *curr = d->head;
     while (curr) {
         if (curr->val == v)
             return 1;
@@ -244,109 +251,64 @@ static int find(struct deque *d, int v) {
     return 0;
 }
 
-// hash table
+// hash table structure
 static struct table {
     int len;
-    struct deque *buckets[MAXLEN];
+    struct deque buckets[MAXLEN];
 };
 
-// create_table: Creates a new hash table.
-static struct table *create_table() {
-    struct table *t;
-    if ((t = malloc(sizeof(struct table))) == -1) {
-        perror("project: create_table: malloc");
-        exit(EXIT_FAILURE);
-    }
-
+// init_table: Initializes hash table.
+static void init_table(struct table *t) {
     t->len = 0;
     for (int i = 0; i < MAXLEN; i++)
-        t->buckets[i] = create_deque();
-    
-    return t;
+        init_deque(&t->buckets[i]);
+    return;
 }
 
 // free_table: Frees the memory allocated to the table.
 static void free_table(struct table *t) {
+    if (t->len == 0)
+        return;
     for (int i = 0; i < MAXLEN; i++)
-        free_deque(t->buckets[i]);
-    free(t);
+        free_deque(&t->buckets[i]);
 }
 
 // insert: Inserts a new entry to the hash table.
 static void insert(struct table *t, int v) {
-    if (find(t->buckets[v % MAXLEN],v) == 0)
-        append(t->buckets[v % MAXLEN],v);
+    if (find(&t->buckets[v % MAXLEN], v) == 0)
+        append(&t->buckets[v % MAXLEN], v);
     return;
-}
-
-/* delete: Deletes the value from the table and returns the number of
-    entries deleted. */
-static int delete(struct table *t, int v) {
-    struct deque *b = t->buckets[v % MAXLEN];
-    int count = 0;
-    if (b->len == 0)
-        return count;
-    
-    struct node *curr = b->head;
-    while (curr) {
-        if (curr->val != v) {
-            curr = curr->next;
-            continue;
-        }
-
-        // Decrement lengths
-        t->len--;
-        b->len--;
-
-        // Remove node from deque
-        if (curr->prev)
-            curr->prev->next = curr->next;
-        else
-            b->head = curr->next;
-        
-        if (curr->next)
-            curr->next->prev = curr->prev;
-        else
-            b->tail = curr->prev;
-        
-        curr = curr->next;
-        free(curr);
-        count++;
-    }
-
-    return count;
 }
 
 /* search: Searches the hash table for the value and returns 1, 
     if successful, and 0 otherwise. */
 static int search(struct table *t, int v) {
-    return find(t->buckets[v % MAXLEN], v);
+    return find(&t->buckets[v % MAXLEN], v);
 }
 
-// path node
-static struct pnode {
+// path node object
+static struct PathNode {
     int val;
-    struct pnode *next;
-    struct pnode *prev;
-    struct pnode *next_ent;
+    struct PathNode *next;
+    struct PathNode *prev;
+    struct PathNode *next_ent;
 };
 
 // path object
-static struct path {
+static struct Path {
     int len;
-    struct pnode *head;
-    struct pnode *tail;
-    struct pnode *table[MAXLEN];
+    struct PathNode *head;
+    struct PathNode *tail;
+    struct PathNode *table[MAXLEN];
 };
 
 // create_path: Creates a new path object.
-static struct path *create_path() {
-    struct path *p;
-    if ((p = malloc(sizeof(struct path))) == -1) {
+static struct Path *create_path() {
+    struct Path *p;
+    if ((p = malloc(sizeof(struct Path))) == NULL) {
         perror("project: create_path: malloc");
         exit(EXIT_FAILURE);
     }
-
     p->len = 0;
     p->head = NULL;
     p->tail = NULL;
@@ -357,100 +319,169 @@ static struct path *create_path() {
 }
 
 // free_path: Frees all the memory allocated to the path.
-static void free_path(struct path *p) {
+static void free_path(struct Path *p) {
     if (p->len == 0) {
         free(p);
         return;
     }
 
-    struct pnode *curr = p->head;
+    struct PathNode *curr = p->head;
     while (curr->next) {
         curr = curr->next;
         free(curr->prev);
     }
     free(curr);
     free(p);
+    return;
+}
+
+// print_path: Prints the path.
+static void print_path(struct Path *p) {
+    if (p->len == 0) {
+        printf("path: empty\n");
+        return;
+    }
+
+    struct PathNode *curr = p->head;
+    printf("path: [ %d", curr->val);
+    while (curr->next) {
+        curr = curr->next;
+        printf(", %d", curr->val);
+    }
+    printf(" ]\n");
+    return;
 }
 
 // add_vxt: Adds the value to the end of the path.
-static void add_vxt(struct path *p, int v) {
-    struct pnode *pn;
-    if ((pn = malloc(sizeof(struct pnode))) == -1) {
+static void add_vxt(struct Path *p, int v) {
+    struct PathNode *pn;
+    if ((pn = malloc(sizeof(struct PathNode))) == NULL) {
         perror("project: add: malloc");
         exit(EXIT_FAILURE);
     }
-
     pn->val = v;
+    pn->next = NULL;
     pn->prev = p->tail;
-    p->tail->next = pn;
+    if (p->len == 0)
+        p->head = pn;
+    if (p->len > 0)
+        p->tail->next = pn;
     p->tail = pn;
-
     pn->next_ent = p->table[v % MAXLEN];
     p->table[v % MAXLEN] = pn;
     p->len++;
+    return;
 }
-
 
 /* dequeue_vxt: Removes the last vertex from the path and returns its
     value. If the path is empty, dequeue_vxt returns -1. */
-static int dequeue_vxt(struct path *p) {
-    int ret = -1;
+static int dequeue_vxt(struct Path *p) {
     if (p->len == 0)
-        return ret;
-    ret = p->tail->val;
+        return -1;
+    
+    // Remove the last vxt from the path
+    struct PathNode *vxt = p->tail;
+    if (p->len-- == 1) {
+        p->head = NULL;
+        p->tail = NULL;
+    } else {
+        p->tail = vxt->prev;
+        p->tail->next = NULL;
+    }
 
-    struct pnode *vxt = p->tail;
-    struct pnode *ent = p->table[vxt->val % MAXLEN];
-    p->len--;
-    if (ent == vxt) {
-        p->table[vxt->val % MAXLEN] = ent->next_ent;
+    // Remove the vxt from the table
+    int v = vxt->val;
+    struct PathNode *curr = p->table[v % MAXLEN];
+    if (curr->val = v) {
+        p->table[v % MAXLEN] = curr->next_ent;
         free(vxt);
-        return ret;
+        return v;
     }
 
-    while (ent->next_ent) {
-        if (ent->next_ent = vxt) {
-            ent->next_ent = vxt->next_ent;
-            break;
+    struct PathNode *prev;
+    while (curr->next_ent) {
+        prev = curr;
+        curr = curr->next_ent;
+        if (curr->val == v) {
+            prev->next_ent = curr->next_ent;
+            free(vxt);
+            return v;
         }
-        ent = ent->next_ent;
     }
+    curr->next_ent = NULL;
     free(vxt);
-    return ret;
+    return v;
 }
 
 /* pod_vxt: Removes the first vertex from the path and returns its value.
     If the path is empty, pop_vxt returns -1. */
-static int pop_vxt(struct path *p) {
-    int val = -1;
+static int pop_vxt(struct Path *p) {
     if (p->len == 0)
-        return val;
-    val = p->head->val; 
+        return -1;
+    
+    // Remove the first vertex from the path
+    struct PathNode *vxt = p->head;
+    if (p->len-- == 1) {
+        p->head = NULL;
+        p->tail = NULL;
+    } else {
+        p->head = vxt->next;
+        p->head->prev = NULL;
+    }
 
-    struct pnode *vxt = p->head;
-    struct pnode *ent = p->table[val % MAXLEN];
-    p->len--;
-    if (ent == vxt) {
-        p->table[val % MAXLEN] = ent->next_ent;
+    // Remove the vertex from the table
+    int v = vxt->val;
+    struct PathNode *curr = p->table[v % MAXLEN];
+    if (curr->val == v) {
+        p->table[v % MAXLEN] = curr->next_ent;
         free(vxt);
-        return val;
+        return v;
     }
 
-    while (ent->next_ent) {
-        if (ent->next_ent = vxt) {
-            ent->next_ent = vxt->next_ent;
-            break;
+    struct PathNode *prev;
+    while (curr->next) {
+        prev = curr;
+        curr = curr->next_ent;
+        if (curr->val == v) {
+            prev->next_ent = curr->next_ent;
+            free(vxt);
+            return v;
         }
-        ent = ent->next_ent;
     }
+    curr->next_ent = NULL;
     free(vxt);
-    return val;
+    return v;
+}
+
+/* push_vxt: Adds a new node to the start of the path. */
+static void push_vxt(struct Path *p, int val) {
+    struct PathNode *n;
+    if ((n = malloc(sizeof(struct PathNode))) == NULL) {
+        perror("project: push_vxt: malloc");
+        exit(EXIT_FAILURE);
+    }
+    n->val = val;
+    n->next = p->head;
+    n->prev = NULL;
+
+    // Add the node to the start of the path
+    if (p->len == 0)
+        p->tail = n;
+    else
+        p->head->prev = n;
+    p->head = n;
+
+    // Add the node to the table
+    n->next_ent = p->table[val % MAXLEN];
+    p->table[val % MAXLEN] = n;
+    p->len++;
+    return;
 }
 
 /* get_vxt: Gets the vertex from the path with its id and returns a
     pointer to the vertex. If there is no vertex, get_vxt returns NULL. */
-static struct pnode *get_vxt(struct path *p, int id) {
-    struct pnode *pn = p->table[id % MAXLEN];
+static struct PathNode *get_vxt(struct Path *p, int id) {
+    struct PathNode *pn = p->table[id % MAXLEN];
     if (pn == NULL)
         return pn;
 
@@ -463,8 +494,8 @@ static struct pnode *get_vxt(struct path *p, int id) {
 }
 
 /* in_path: Checks if the value is in the path. */
-static int in_path(struct path *p, int v) {
-    struct pnode *ent = p->table[v % MAXLEN];
+static int in_path(struct Path *p, int v) {
+    struct PathNode *ent = p->table[v % MAXLEN];
     if (ent == NULL)
         return 0;
     
@@ -477,36 +508,24 @@ static int in_path(struct path *p, int v) {
 }
 
 /* get_cycle: Searches for cycles in the project starting with given id
-    and returns the first cycle found. Otherwise, returns NULL. */
-static struct path *get_cycle(struct project *proj, int id) {
-    ProjectNode *node = get_node(proj,id);
-    if (node == NULL)
-        return NULL;
-    
-    // Create data structures
-    struct path *path = create_path();
-    struct table *visited = create_table();
-    struct deque *dq = create_deque();
+    and returns the first cycle found. */
+static struct Path *get_cycle(Project *proj, int id) {
+    // Create path
+    struct Path *path = create_path();
 
-    // Start BFS
-    push(dq,node->job->id);
-    while (dq->len > 0) {
-        insert(visited, id = pop(dq));
+    // Initialize data structures
+    struct table visited;
+    init_table(&visited);
+    struct deque dq;
+    init_deque(&dq);
 
-        // Check for cycle
-        if (in_path(path,id)) {
-            // Trim path and create cycle
-            while (path->head->val != id)
-                if (pop_vxt(path) == -1) {
-                    fprintf(stderr,"project: get_cycle: Path is empty\n");
-                    exit(EXIT_FAILURE);
-                };
-            add_vxt(path,id);
-            break;
-        }
-        add_vxt(path,id);
-
-        node = get_node(proj,id);
+    // Start DFS
+    ProjectNode *node;
+    push(&dq, id);
+    while (dq.len > 0) {
+        insert(&visited, id = dequeue(&dq));
+        add_vxt(path, id);
+        node = get_node(proj, id);
         if (node->len == 0) {
             dequeue_vxt(path);
             continue;
@@ -517,95 +536,69 @@ static struct path *get_cycle(struct project *proj, int id) {
             id = node->deps[i];
 
             // Check for cycle
-            if (in_path(path,id)) {
-                // Trim path and create cycle
-                while (path->head->val !=  id)
-                    if (pop_vxt(path) == -1) {
-                        fprintf(stderr,"project: get_cycle: Path is empty");
-                        exit(EXIT_FAILURE);
-                    }
-                add_vxt(path,id);
-                break;
+            if (in_path(path, id)) {
+                add_vxt(path, id);
+                while (pop_vxt(path) != id)
+                    ;
+                push_vxt(path, id);
+                return path;
             }
 
-            if (search(visited,id) == 0)
-                push(dq,id);
+            if (search(&visited, id) == 0)
+                push(&dq, id);
         }
     }
+
+    // Remove all vertices from the last path checked
+    while (pop_vxt(path) != -1)
+        ;
     
     // Free data structures
-    free_deque(dq);
-    free_table(visited);
+    free_deque(&dq);
+    free_table(&visited);
 
-    // Check if path is a cycle and return it
-    if ((path->len >= 2) && (path->head->val == path->tail->val))
-        return path;
-    free_path(path);
-    return NULL;
+    return path;
 }
 
 /* audit_project: Checks the integrity of the project dependency graph. If
     there is no cycles in the graph, return 0. Otherwise, return -1. */
 int audit_project(Project *proj) {
-    if (proj->len == 0) {
-        fprintf(stderr,"project: audit_project: Warning the project is empty\n");
+    if (proj->len == 0)
         return 0;
-    }
 
-    // Check for missing jobs
-    struct deque *job_ids = create_deque();
-    struct table *deps_ids = create_table();
+    // Check for missing job dependencies
+    struct table job_ids;
+    init_table(&job_ids);
+
     ProjectNode *curr = proj->jobs.head;
-
-    int i;
     while (curr) {
-        for (i = 0; i < curr->len; i++)
-            insert(deps_ids, curr->deps[i]);
+        insert(&job_ids, curr->job->id);
         curr = curr->next;
     }
 
     curr = proj->jobs.head;
     while (curr) {
-        if (search(deps_ids,curr->job->id) == 0)
-            append(job_ids,curr->job->id);
+        for (int i = 0; i < curr->len; i++)
+            if (search(&job_ids, curr->deps[i]) == 0) {
+                printf("missing dependency %d from %d\n", curr->deps[i], curr->job->id);
+                return -1;
+            }
         curr = curr->next;
     }
-
-    if (job_ids->len > 0) {
-        // Print missing dependencies error message
-        struct node *n = job_ids->head;
-        fprintf(stderr, "project: audit_project: Missing ependencies \
-        error. The project is missing jobs %d", n->val);
-        for (n = n->next; n; n = n->next)
-            fprintf(stderr, ", %d", n->val);
-        fprintf(stderr, ".\n");
-        free_deque(job_ids);
-        free_table(deps_ids);
-        return -1;
-    }
-
-    free_deque(job_ids);
-    free_table(deps_ids);
+    free_table(&job_ids);
 
     // Check for cycle
-    struct path *cycle;
+    struct Path *cycle;
     curr = proj->jobs.head;
     while (curr) {
-        if ((cycle = get_cycle(proj,curr->job->id)) != NULL)
-            break;
-        curr = curr->next;
-    }
-
-    if (curr) {
-        // Print cycle error message
-        struct pnode *pn = cycle->head;
-        fprintf(stderr, "project: audit_project: Circular dependency \
-        error. The jobs %d", pn->val);
-        for (pn = pn->next; pn; pn = pn->next)
-            fprintf(stderr, ", %d", pn->val);
-        fprintf(stderr, " cannot form a cycle.\n");
+        cycle = get_cycle(proj, curr->job->id);
+        if (cycle->len > 2) {
+            print_path(cycle);
+            free_path(cycle);
+            return -1;
+        }
         free_path(cycle);
-        return -1;
+        curr = curr->next;
     }
 
     return 0;
@@ -613,7 +606,6 @@ int audit_project(Project *proj) {
 
 /* encode_project: Encodes the project into a JSON object. */
 json_value *encode_project(Project *proj) {
-    // Set up json-builder
     json_settings settings;
     settings.value_extra = json_builder_extra;
 
@@ -622,7 +614,6 @@ json_value *encode_project(Project *proj) {
     json_object_push(obj, "id", json_integer_new(proj->id));
 
     // Add jobs
-    int i;
     json_value *job, *jobs, *deps, *val;
     jobs = json_array_new(proj->len);
     ProjectNode *curr = proj->jobs.head;
@@ -631,26 +622,15 @@ json_value *encode_project(Project *proj) {
         job = encode_job(curr->job);
         json_object_push(val, "job", job);
         deps = json_array_new(curr->len);
-        for (i = 0; i < curr->len; i++) {
+        for (int i = 0; i < curr->len; i++) {
             json_array_push(deps, json_integer_new(curr->deps[i]));
         }
         json_object_push(val, "dependencies", deps);
         json_array_push(jobs, val);
+        curr = curr->next;
     }
     json_object_push(obj, "jobs", jobs);
     return obj;
-}
-
-/* json_get_value: Gets the value by its name from the JSON object and
-    returns it. Otherwise, it returns NULL. */
-static json_value *json_get_value(json_value *obj, char *name) {
-    if (obj->type != json_object)
-        return NULL;
-    for (int i = 0; i < obj->u.object.length; i++) {
-        if (strcmp(obj->u.object.values[i].name, name) == 0)
-            return obj->u.object.values[i].value;
-    }
-    return NULL;
 }
 
 /* decode_project: Decodes the JSON object into a new project. */
@@ -661,8 +641,8 @@ Project *decode_project(json_value *obj) {
     int j, len, *ids;
     json_value *job, *deps;
     json_value *jobs = json_get_value(obj, "jobs");
-    for (int i = 0; i < jobs->u.array.length; i++) {
-        job = json_get_value(job->u.array.values[i], "job");
+    for (unsigned int i = 0; i < jobs->u.array.length; i++) {
+        job = json_get_value(jobs->u.array.values[i], "job");
         deps = json_get_value(jobs->u.array.values[i], "dependencies");
         len = deps->u.array.length;
         if ((ids = malloc(sizeof(int) * len)) == NULL) {

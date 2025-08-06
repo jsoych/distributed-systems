@@ -11,7 +11,7 @@
 #include "json.h"
 #include "json-builder.h"
 
-// ProjectNode
+// project node
 typedef struct _project_node {
     Job *job;
     int *deps;
@@ -19,12 +19,12 @@ typedef struct _project_node {
     struct _project_node *next;
     struct _project_node *prev;
     struct _project_node *next_ent;
-} ProjectNode;
+} project_node;
 
-// jobs list structure
+// jobs list
 typedef struct _jobs_list {
-    ProjectNode *head;
-    ProjectNode *tail;
+    project_node *head;
+    project_node *tail;
 } jobs_list;
 
 // Project object
@@ -33,14 +33,14 @@ typedef struct _project {
     int status;
     int len;
     jobs_list jobs;
-    ProjectNode *jobs_table[MAXLEN];
+    project_node *jobs_table[MAXLEN];
 } Project;
 
 Project *create_project(int);
 void free_project(Project *);
 void add_job(Project *, Job *, int [], int);
 void remove_job(Project *, int);
-int audit_project(Project *);
+Job *get_job(Project *, int);
 json_value *encode_project(Project *);
 Project *decode_project(json_value *);
 

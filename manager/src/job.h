@@ -18,10 +18,11 @@ typedef struct _job_node {
 typedef struct _job {
     int id;
     int status;
+    int len;
     JobNode *head;
 } Job;
 
-Job *create_job(int,int);
+Job *create_job(int);
 void free_job(Job *);
 void add_task(Job *, char *);
 json_value *encode_job(Job *);

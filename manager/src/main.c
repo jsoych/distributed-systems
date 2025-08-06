@@ -1,5 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <errno.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/socket.h>
@@ -22,11 +24,12 @@ enum {
 // Globals
 int logging_level;
 Manager *manager;
+volatile sig_atomic_t int_flag;
 
-json_value *json_get_value(json_value *, char *);
 json_value *manager_status_map(int);
 json_value *project_status_map(int);
-void *manager_thread(void *arg);
+void *manager_thread(void *);
+void signal_handler(int);
 
 struct client_node {
     int sd;
@@ -77,7 +80,7 @@ int main(int argc, char *argv[]) {
     snprintf(
         addr.sun_path,
         sizeof(addr.sun_path),
-        "/run/pyoneer/manager%d.socket",
+        "/home/jsoychak/pyoneer/run/manager%d.socket",
         manager->id
     );
 #endif
@@ -85,6 +88,16 @@ int main(int argc, char *argv[]) {
     int serv;
     if ((serv = socket(PF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("main: socket");
+        exit(EXIT_FAILURE);
+    }
+
+    struct sigaction sa;
+    sa.sa_handler = signal_handler;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
+
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("main: sigaction");
         exit(EXIT_FAILURE);
     }
 
@@ -98,24 +111,25 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    int old_errno, sd;
-    socklen_t addr_len;
+    int err, sd;
     struct client_list clients;
     struct client_node *node;
     init_client_list(&clients);
-    struct sockaddr_storage client_addr;
-    for (;;) {
+    int_flag = 0;
+    while (int_flag != 1) {
         // Accept client connections
-        if ((sd = accept(serv, (struct sockaddr *) &client_addr, &addr_len)) == -1) {
+        if ((sd = accept(serv, NULL, NULL)) == -1) {
             perror("main: accept");
-            exit(EXIT_FAILURE);
+            if (errno == EINTR)
+                continue;
+            break;
         }
         node = add_client(&clients, sd);
 
         // Create manager thread
-        if ((old_errno = pthread_create(&node->tid, NULL, manager_thread, &node->sd)) != 0) {
-            fprintf(stderr, "main: pthread_create: %s\n", strerror(old_errno));
-            exit(EXIT_FAILURE);
+        if ((err = pthread_create(&node->tid, NULL, manager_thread, &node->sd)) != 0) {
+            fprintf(stderr, "main: pthread_create: %s\n", strerror(err));
+            break;
         }
     }
     free_client_list(&clients);
@@ -132,6 +146,12 @@ int main(int argc, char *argv[]) {
 json_value *manager_status_map(int status) {
     json_value *val;
     switch (status) {
+        case _MANAGER_NOT_ASSIGNED:
+            val = json_string_new("not_assigned");
+            break;
+        case _MANAGER_ASSIGNED:
+            val = json_string_new("assigned");
+            break;
         case _MANAGER_NOT_WORKING:
             val = json_string_new("not_working");
             break;
@@ -169,18 +189,6 @@ json_value *project_status_map(int status) {
     return val;
 }
 
-/* json_get_value */
-json_value *json_get_value(json_value *obj, char *name) {
-    json_value *val = NULL;
-    for (unsigned int i = 0; i < obj->u.object.length; i++) {
-        if (strcmp(obj->u.object.values[i].name, name) == 0) {
-            val = obj->u.object.values[i].value;
-            break;
-        }
-    }
-    return val;
-}
-
 /* manager_thread: Responds to API requests (commands). */
 void *manager_thread(void *arg) {
     int client = *((int *) arg);
@@ -192,6 +200,8 @@ void *manager_thread(void *arg) {
     char buf[BUFLEN], error[128];
     while ((nbytes = recv(client, buf, BUFLEN, 0)) > 0) {
         buf[(nbytes == BUFLEN ? BUFLEN - 1 : nbytes)] = '\0';
+        if (logging_level == debug)
+            printf("%s\n", buf);
 
         if ((res = json_object_new(0)) == NULL) {
             fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
@@ -395,6 +405,18 @@ void free_client_list(struct client_list *l) {
     if ((err = pthread_mutex_destroy(&l->lock)) != 0) {
         fprintf(stderr, "main: free_client_list: pthread_mutex_destroy: %s\n", strerror(err));
         exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+void signal_handler(int signo) {
+    switch (signo) {
+        case SIGINT:
+            int_flag = 1;
+            break;
+        case SIGPIPE:
+            // Close connection with client
+            break;
     }
     return;
 }

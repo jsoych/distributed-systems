@@ -1,4 +1,4 @@
-cflags = -Wall -Wextra -Wpedantic
+cflags = -g -O0 -Wall -Wextra -Wpedantic
 
 src_dir = .
 build_dir = .
@@ -20,7 +20,7 @@ ifeq ($(shell uname),Linux)
 endif
 
 manager: $(objs)
-	$(cc) $(cflags) $^ -o manager
+	$(cc) $(cflags) $^ -lm -o manager
 
 main.o: manager.h project.h json.h json-builder.h main.c
 	$(cc) $(cflags) -c main.c
@@ -56,3 +56,23 @@ install:
 
 uninstall:
 	rm -i $(bin)/manager $(run)/manager*.socket $(var)/manager*.log
+
+test: test-project test-job test-task
+	./test-task
+	./test-job
+	./test-project
+
+test-manager: test-manager.c unittest.o json.o json-builder.o manager.o project.o job.o task.o
+	$(cc) $(cflags) -g test-manager.c unittest.o json.o json-builder.o manager.o project.o job.o task.o -lm -o test-manager
+
+test-project: test-project.c json.o json-builder.o project.o job.o task.o
+	$(cc) $(cflags) -g test-project.c json.o json-builder.o project.o job.o task.o -lm -o test-project
+
+test-job: test-job.c json.o json-builder.o job.o task.o
+	$(cc) $(cflags) -g test-job.c json.o json-builder.o job.o task.o -lm -o test-job
+
+test-task: test-task.c task.o
+	$(cc) $(cflags) -g test-task.c task.o -o test-task
+
+unnittest.o: unittest.h unittest.c
+	$(cc) $(cflags) -c unnittest.c

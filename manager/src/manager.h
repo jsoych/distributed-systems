@@ -8,65 +8,23 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include "project.h"
+#include "crew.h"
 
-// worker statuses
+// report types
 typedef enum {
-    worker_not_assigned,
-    worker_assigned,
-    worker_not_working,
-    worker_working
-} worker_status;
+    missing_job_dependencies,
+    cyclic_job_dependencies
+} report_t;
 
-// job statuses
-typedef enum {
-    job_not_ready,
-    job_ready,
-    job_running,
-    job_completed,
-    job_incomplete
-} job_status;
+// Report object
+typedef struct _report {
+    report_t type;
+    union {
+        int integer
+    } u;
+} Report;
 
-// job structure
-typedef struct _manager_job {
-    int id;
-    job_status status;
-} job;
-
-// Worker object
-typedef struct _worker {
-    int id;
-    worker_status status;
-    job job;
-} Worker;
-
-struct _manager;
-
-// Crew node structure
-typedef struct _crew_node {
-    Worker *worker;
-    struct _crew_node *next;
-    struct _crew_node *prev;
-    struct _crew_node *next_free;
-    struct _crew_node *prev_free;
-    pthread_t tid;
-} crew_node;
-
-// list structure
-typedef struct _list {
-    crew_node *head;
-    crew_node *tail;
-    int len;
-} list;
-
-// Crew object
-typedef struct _crew {
-    list workers;
-    list freelist;
-    pthread_mutex_t lock;
-    pthread_t tid;
-} Crew;
-
-// RunningProjectNode
+// running project node
 typedef struct _running_project_node {
     int worker_id;
     Job *job;
@@ -74,12 +32,12 @@ typedef struct _running_project_node {
     int len;
     struct _running_project_node *next;
     struct _running_project_node *prev;
-} RunningProjectNode;
+} running_project_node;
 
 // queue structure
 typedef struct _queue {
-    RunningProjectNode *head;
-    RunningProjectNode *tail;
+    running_project_node *head;
+    running_project_node *tail;
     int len;
 } queue;
 
@@ -107,10 +65,11 @@ typedef struct _manager {
 Manager *create_manager(int);
 void free_manager(Manager *);
 
-// Comands and signals
-int run_project(Manager *, Project *);
+// Commands
+Report *check_project(Manager *, Project *);
 int get_status(Manager *);
 int get_project_status(Manager *);
+int run_project(Manager *, Project *);
 int start(Manager *);
 int stop(Manager *);
 
