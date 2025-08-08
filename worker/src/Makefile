@@ -1,4 +1,4 @@
-cflags = -Wall -Wextra -Wpedantic
+cflags = -Wall -Wextra -Wpedantic -g
 
 src_dir = .
 build_dir = .

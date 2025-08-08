@@ -34,8 +34,8 @@ typedef struct _running_project_node {
     struct _running_project_node *prev;
 } running_project_node;
 
-// queue structure
-typedef struct _queue {
+// queue
+typedef struct _running_project_queue {
     running_project_node *head;
     running_project_node *tail;
     int len;

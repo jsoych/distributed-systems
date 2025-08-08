@@ -10,7 +10,7 @@ void unittest_print_result(char *suite, unittest_result result, char *name, char
             printf("%s: success: %s\n", suite, name);
             break;
         case unittest_failure:
-            printf("%s: failure: %s: %s", suite, name, msg);
+            printf("%s: failure: %s: %s\n", suite, name, msg);
             break;
     }
     return;

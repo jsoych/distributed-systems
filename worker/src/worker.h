@@ -1,5 +1,6 @@
 #ifndef _WORKER_H
 #define _WORKER_H
+#define _WORKER_NOT_ASSIGNED -1
 #define _WORKER_NOT_WORKING 0
 #define _WORKER_WORKING 1
 

@@ -114,12 +114,14 @@ int main(int argc, char *argv[]) {
             buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
             if ((res = json_object_new(0)) == NULL) {
                 fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
-                close(client);
-                close(serv);
-                exit(EXIT_FAILURE);
+                break;
             }
 
+            if (logging_level == debug)
+                printf("api request: %s\n", buf);
+
             if ((obj = json_parse_ex(&settings, buf, BUFLEN, error)) == NULL) {
+                fprintf(stderr, "main: json_parse_ex: error: error\n");
                 obj = json_null_new();
                 goto send;
             }
@@ -190,13 +192,15 @@ int main(int argc, char *argv[]) {
                 json_object_push(res, "error", val);
             }
 
-            send:
             if (logging_level == debug)
                 json_object_push(res, "debug", obj);
-            
+            else
+                json_value_free(obj);
+
+            send:
             if (json_measure(res) > BUFLEN) {
-                fprintf(stderr, "main: Error: Buffer length too small\n");
-                strcpy(buf, "{\"error\":\"API failure\"}");
+                fprintf(stderr, "main: json_measure: buffer length too small\n");
+                strcpy(buf, "{\"error\":\"api failure\"}");
             } else {
                 json_serialize(buf, res);
             }
@@ -204,12 +208,12 @@ int main(int argc, char *argv[]) {
             if (send(client, buf, strlen(buf), 0) == -1) {
                 perror("main: send");
                 json_builder_free(res);
-                json_builder_free(obj);
                 exit(EXIT_FAILURE);
             }
 
-            if (logging_level != debug)
-                json_builder_free(obj);
+            if (logging_level == debug)
+                printf("api response: %s\n", buf);
+
             json_builder_free(res);
         }
 
@@ -246,11 +250,17 @@ int main(int argc, char *argv[]) {
 json_value *worker_status_map(int status) {
     json_value *val;
     switch (status) {
+        case _WORKER_NOT_ASSIGNED:
+            val = json_string_new("not_assigned");
+            break;
         case _WORKER_NOT_WORKING:
             val = json_string_new("not_working");
             break;
         case _WORKER_WORKING:
             val = json_string_new("working");
+            break;
+        default:
+            val = json_null_new();
             break;
     }
     return val;

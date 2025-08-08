@@ -3,6 +3,7 @@
 
 #include <pthread.h>
 #include "json.h"
+#include "json-builder.h"
 
 #define _CREW_MAXLEN 512
 
@@ -67,10 +68,8 @@ int add_worker(Crew *, int);
 int remove_worker(Crew *, int);
 worker_status get_worker_status(Crew *, int);
 job_status get_worker_job_status(Crew *, int);
-int update_worker_status(Crew *, int, worker_status);
-void freelist_append(Crew *, int);
-void freelist_push(Crew *, int);
-int freelist_pop(Crew *);
+int assign_job(Crew *, json_value *);
+int unassign_worker(Crew *, int);
 void broadcast_command(Crew *, json_value *);
 
 #endif

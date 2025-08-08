@@ -1,8 +1,13 @@
 #include <stdio.h>
 #include <string.h>
 #include "project.h"
+#include "unittest.h"
 
 #define BUFSIZE 1024
+
+#define success unittest_success
+#define failure unittest_failure
+#define printr(result, name, msg) unittest_print_result("test-project", result, name, msg)
 
 typedef enum {
     test_success,
@@ -23,36 +28,30 @@ int main() {
 
     // check id
     if (proj->id == 0)
-        print_result(test_success, "empty project id", NULL);
+        printr(success, "empty project id", NULL);
     else
-        print_result(test_failure, "empty project id", "unexpected id");
+        printr(failure, "empty project id", "unexpected id");
 
     // check status
     if (proj->status == _PROJECT_READY)
-        print_result(test_success, "empty project status", NULL);
+        printr(success, "empty project status", NULL);
     else
-        print_result(test_failure, "empty project status", "unexpected status");
+        printr(failure, "empty project status", "unexpected status");
     
     // check length
     if (proj->len == 0)
-        print_result(test_success, "empty project length", NULL);
+        printr(success, "empty project length", NULL);
     else
-        print_result(test_failure, "empty project length", "unexpected status");
+        printr(failure, "empty project length", "unexpected status");
     
-    // check audit
-    if (audit_project(proj) == 0)
-        print_result(test_success, "empty project audit", NULL);
-    else
-        print_result(test_failure, "empty project audit", "failed audit");
-
     // encode project
     val = encode_project(proj);
     json_serialize(buf, val);
     
     if (strcmp(buf, "{ \"id\": 0, \"jobs\": [] }") == 0)
-        print_result(test_success, "empty project encoding", NULL);
+        printr(success, "empty project encoding", NULL);
     else
-        print_result(test_failure, "empty project encoding", buf);
+        printr(failure, "empty project encoding", buf);
 
     json_builder_free(val);
     free_project(proj);
@@ -64,15 +63,9 @@ int main() {
 
     // check length
     if (proj->len == 1)
-        print_result(test_success, "small project length", NULL);
+        printr(success, "small project length", NULL);
     else
-        print_result(test_failure, "small project length", "unexpected length");
-
-    // check audit
-    if (audit_project(proj) == 0)
-        print_result(test_success, "small project audit", NULL);
-    else
-        print_result(test_failure, "small project audit", "failed audit");
+        printr(failure, "small project length", "unexpected length");
 
     free_project(proj);
 
@@ -100,15 +93,9 @@ int main() {
 
     // check length
     if (proj->len == 5)
-        print_result(test_success, "medium project with job dependencies length", NULL);
+        printr(success, "medium project with job dependencies length", NULL);
     else
-        print_result(test_failure, "medium project with dependencies length", "unexpected value");
-    
-    // check audit
-    if (audit_project(proj) == 0)
-        print_result(test_success, "medium project with job dependencies audit", NULL);
-    else
-        print_result(test_failure, "medium project with job dependencies audit", "failed audit");
+        printr(failure, "medium project with dependencies length", "unexpected value");
 
     free_project(proj);
 
@@ -126,12 +113,6 @@ int main() {
 
     job = create_job(3);
     add_job(proj, job, NULL, 0);
-
-    // check audit
-    if (audit_project(proj) == -1)
-        print_result(test_success, "small project with cyclic job dependencies audit", NULL);
-    else
-        print_result(test_failure, "small project with cyclic job dependencies audit", "failed audit");
 
     free_project(proj);
 
@@ -180,39 +161,15 @@ int main() {
     deps[0] = 5;
     add_job(proj, job, deps, 1);
 
-    // check audit
-    if (audit_project(proj) == -1)
-        print_result(test_success, "large project with cyclic job dependencies audit", NULL);
-    else
-        print_result(test_failure, "large project with cyclic job dependencies audit", "failed audit");
-
     remove_job(proj, 6);
     
-    // check audit
-    if (audit_project(proj) == -1)
-        print_result(test_success, "missing job dependency", NULL);
-    else
-        print_result(test_failure, "missing job dependency", "failed audit");
-
     job = create_job(6);
     add_job(proj, job, NULL, 0);
-
-    // check audit
-    if (audit_project(proj) == -1)
-        print_result(test_success, "adding missing job dependency", NULL);
-    else
-        print_result(test_failure, "adding missing job dependency", "failed audit");
 
     remove_job(proj, 10);
     job = create_job(10);
     add_job(proj, job, NULL, 0);
 
-    // check audit
-    if (audit_project(proj) == 0)
-        print_result(test_success, "remove cycle", NULL);
-    else
-        print_result(test_failure, "remove cycle", "failed audit");
-    
     free_project(proj);
 
     // max project length
@@ -225,9 +182,9 @@ int main() {
 
     // check length
     if (proj->len == MAXLEN)
-        print_result(test_success, "max project length", NULL);
+        printr(success, "max project length", NULL);
     else
-        print_result(test_failure, "max project length", "unexpected length");
+        printr(failure, "max project length", "unexpected length");
     
     free_project(proj);
 
@@ -237,15 +194,15 @@ int main() {
 
     // check id
     if (proj->id == 0)
-        print_result(test_success, "decode empty project id", NULL);
+        printr(success, "decode empty project id", NULL);
     else
-        print_result(test_failure, "decode empty project id", "unexpected value");
+        printr(failure, "decode empty project id", "unexpected value");
     
     // check length
     if (proj->len == 0)
-        print_result(test_success, "decode empty project length", NULL);
+        printr(success, "decode empty project length", NULL);
     else
-        print_result(test_failure, "decode empty project length", "unexpected length");
+        printr(failure, "decode empty project length", "unexpected length");
     
     json_value_free(val);
     free_project(proj);
@@ -256,23 +213,11 @@ int main() {
 
     // check length
     if (proj->len == 2)
-        print_result(test_success, "decode small project length", NULL);
+        printr(success, "decode small project length", NULL);
     else
-        print_result(test_failure, "decode small project length", "unexpected length");
-
-    // check audit
-    if (audit_project(proj) == 0)
-        print_result(test_success, "decode small project audit", NULL);
-    else
-        print_result(test_failure, "decode small project audit", "failed audit");
+        printr(failure, "decode small project length", "unexpected length");
 
     remove_job(proj, 2);
-
-    // check remove
-    if (audit_project(proj) == -1)
-        print_result(test_success, "decode small project remove job", NULL);
-    else
-        print_result(test_success, "decode small project remove job", "failed to remove job");
 
     job = create_job(2);
     deps[0] = 3;
@@ -286,26 +231,8 @@ int main() {
     deps[0] = 1;
     add_job(proj, job, deps, 1);
 
-    if (audit_project(proj) == -1)
-        print_result(test_success, "decode small project with cycle", NULL);
-    else
-        print_result(test_failure, "decode small project with cycle", "failed audit");
-    
     json_value_free(val);
     free_project(proj);
 
     return 0;
-}
-
-/* print_result: Prints the result of the test. */
-void print_result(test_result result, char *name, char *msg) {
-    switch (result) {
-        case test_success:
-            printf("test-project: success: %s\n", name);
-            break;
-        case test_failure:
-            printf("test-project: failure: %s: %s\n", name, msg);
-            break;
-    }
-    return;
 }

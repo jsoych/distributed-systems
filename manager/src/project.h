@@ -40,7 +40,6 @@ Project *create_project(int);
 void free_project(Project *);
 void add_job(Project *, Job *, int [], int);
 void remove_job(Project *, int);
-Job *get_job(Project *, int);
 json_value *encode_project(Project *);
 Project *decode_project(json_value *);
 

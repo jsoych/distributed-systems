@@ -3,7 +3,7 @@ cflags = -g -O0 -Wall -Wextra -Wpedantic
 src_dir = .
 build_dir = .
 
-objs = main.o manager.o project.o job.o task.o json-builder.o json.o
+objs = main.o manager.o crew.o project.o job.o task.o json-builder.o json.o
 
 ifeq ($(shell uname),Darwin)
 	cc = clang
@@ -25,8 +25,11 @@ manager: $(objs)
 main.o: manager.h project.h json.h json-builder.h main.c
 	$(cc) $(cflags) -c main.c
 
-manager.o: manager.h project.h manager.c
+manager.o: manager.h crew.h project.h manager.c
 	$(cc) $(cflags) -c manager.c
+
+crew.o: crew.h json.h crew.c
+	$(cc) $(cflags) -c crew.c
 
 project.o: project.h job.h json.h json-builder.h project.c
 	$(cc) $(cflags) -c project.c
@@ -65,8 +68,11 @@ test: test-project test-job test-task
 test-manager: test-manager.c unittest.o json.o json-builder.o manager.o project.o job.o task.o
 	$(cc) $(cflags) -g test-manager.c unittest.o json.o json-builder.o manager.o project.o job.o task.o -lm -o test-manager
 
-test-project: test-project.c json.o json-builder.o project.o job.o task.o
-	$(cc) $(cflags) -g test-project.c json.o json-builder.o project.o job.o task.o -lm -o test-project
+test-crew: test-crew.c unittest.o json.o json-builder.o crew.o
+	$(cc) $(cflags) -g test-crew.c unittest.o json.o json-builder.o crew.o -lm -o test-crew
+
+test-project: test-project.c unittest.o json.o json-builder.o project.o job.o task.o
+	$(cc) $(cflags) -g test-project.c unittest.o json.o json-builder.o project.o job.o task.o -lm -o test-project
 
 test-job: test-job.c json.o json-builder.o job.o task.o
 	$(cc) $(cflags) -g test-job.c json.o json-builder.o job.o task.o -lm -o test-job
@@ -74,5 +80,5 @@ test-job: test-job.c json.o json-builder.o job.o task.o
 test-task: test-task.c task.o
 	$(cc) $(cflags) -g test-task.c task.o -o test-task
 
-unnittest.o: unittest.h unittest.c
-	$(cc) $(cflags) -c unnittest.c
+unittest.o: unittest.h unittest.c
+	$(cc) $(cflags) -c unittest.c

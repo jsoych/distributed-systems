@@ -88,7 +88,7 @@ Worker *create_worker(int id) {
     }
 
     worker->id = id;
-    worker->status = _WORKER_NOT_WORKING;
+    worker->status = _WORKER_NOT_ASSIGNED;
     worker->running_job = NULL;
 
     return worker;

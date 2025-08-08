@@ -207,32 +207,6 @@ int get_project_status(Manager *man) {
     return status;
 }
 
-/* assign_job: Assigns a job to a worker in the crew and returns 0. Otherwise
-    return -1. */
-static int assign_job(Manager *man, Job *job) {
-    if (man->crew->freelist.len == 0)
-        return -1;
-    
-    crew_node *node = freelist_pop(man->crew);
-
-    // Create json
-    json_value *res, *val;
-    val = json_object_new(0);
-    json_object_push(val, "command", json_string_new("run_job"));
-    json_object_push(val, "job", encode_job(job));
-    res = send_command(node->worker, val);
-    json_builder_free(val);
-
-    // Update worker and job status
-    val = json_get_value(res, "status");
-    node->worker->status = worker_status_map(val->u.string.ptr);
-    val = json_get_value(res, "job_status");
-    node->worker->job.status = job_status_map(val->u.string.ptr);
-    json_builder_free(res);
-    
-    return 0;
-}
-
 /* sync_project: Synchronizes the project job statuses with the crew job
     job statuses. */
 static void sync_project(Manager *man) {
@@ -805,6 +779,7 @@ static void *project_thread(void *args) {
 
     // Run project
     running_project_node *curr;
+    json_value *obj;
     while (sleep(1) == 0) {
         // Synchronzie project with crew
         sync_project(man);
@@ -825,7 +800,9 @@ static void *project_thread(void *args) {
         for (curr = rproj->ready_jobs.head; curr; curr = curr->next) {
             switch (get_job_status(curr)) {
                 case _JOB_READY:
-                    assign_job(man, curr->job);
+                    obj = encode_job(curr->job);
+                    assign_job(man->crew, obj);
+                    json_builder_free(obj);
                     break;
                 case _JOB_RUNNING:
                     add_node(&rproj->running_jobs, remove_node(&rproj->ready_jobs, curr));
@@ -841,11 +818,11 @@ static void *project_thread(void *args) {
             switch (get_job_status(curr)) {
                 case _JOB_COMPLETED:
                     add_node(&rproj->completed_jobs, remove_node(&rproj->incomplete_jobs, curr));
-                    freelist_append(man->crew, curr->worker_id);
+                    unassign_worker(man->crew, curr->worker_id);
                     break;
                 case _JOB_INCOMPLETE:
                     add_node(&rproj->incomplete_jobs, remove_node(&rproj->running_jobs, curr));
-                    freelist_append(man->crew, curr->worker_id);
+                    unassign_worker(man->crew, curr->worker_id);
                     break;
                 default:
                     fprintf(stderr, "manager: project_thread: Warning: Schedule is in inconsitent state\n");

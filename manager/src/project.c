@@ -44,8 +44,8 @@ void free_project(Project *proj) {
 
 // add_job: Adds the job to the list with the ids of its dependencies.
 void add_job(Project *proj, Job *job, int ids[], int len) {
-    ProjectNode *node;
-    if ((node = malloc(sizeof(ProjectNode))) == NULL) {
+    project_node *node;
+    if ((node = malloc(sizeof(project_node))) == NULL) {
         perror("project: add_job: malloc");
         exit(EXIT_FAILURE);
     }
@@ -81,8 +81,8 @@ void add_job(Project *proj, Job *job, int ids[], int len) {
 }
 
 /* get_node: Gets and returns the node by its job id. Otherwise, NULL. */
-static ProjectNode *get_node(Project *proj, int id) {
-    ProjectNode *ent = proj->jobs_table[id % MAXLEN];
+static project_node *get_node(Project *proj, int id) {
+    project_node *ent = proj->jobs_table[id % MAXLEN];
     while (ent) {
         if (ent->job->id == id)
             break;
@@ -96,7 +96,7 @@ void remove_job(Project *proj, int id) {
     if (proj->len == 0)
         return;
 
-    ProjectNode *node = get_node(proj, id);
+    project_node *node = get_node(proj, id);
     if (node == NULL)
         return;
 
@@ -120,7 +120,7 @@ void remove_job(Project *proj, int id) {
 
 /* get_job: Gets the job from the project and returns it. */
 static Job *get_job(Project *proj, int id) {
-    ProjectNode *ent =  proj->jobs_table[id % MAXLEN]; 
+    project_node *ent =  proj->jobs_table[id % MAXLEN]; 
     while (ent->job->id != id)
         ent = ent->next_ent;
     return ent->job;
@@ -520,7 +520,7 @@ static struct Path *get_cycle(Project *proj, int id) {
     init_deque(&dq);
 
     // Start DFS
-    ProjectNode *node;
+    project_node *node;
     push(&dq, id);
     while (dq.len > 0) {
         insert(&visited, id = dequeue(&dq));
@@ -570,7 +570,7 @@ int audit_project(Project *proj) {
     struct table job_ids;
     init_table(&job_ids);
 
-    ProjectNode *curr = proj->jobs.head;
+    project_node *curr = proj->jobs.head;
     while (curr) {
         insert(&job_ids, curr->job->id);
         curr = curr->next;
@@ -616,7 +616,7 @@ json_value *encode_project(Project *proj) {
     // Add jobs
     json_value *job, *jobs, *deps, *val;
     jobs = json_array_new(proj->len);
-    ProjectNode *curr = proj->jobs.head;
+    project_node *curr = proj->jobs.head;
     while (curr) {
         val = json_object_new(0);
         job = encode_job(curr->job);
