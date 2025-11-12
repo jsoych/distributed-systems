@@ -1,41 +1,51 @@
-#ifndef _WORKER_H
-#define _WORKER_H
-#define _WORKER_NOT_ASSIGNED -1
-#define _WORKER_NOT_WORKING 0
-#define _WORKER_WORKING 1
+#ifndef pyoneer_worker_h
+#define pyoneer_worker_h
 
 #include <pthread.h>
+#include <semaphore.h>
 #include "job.h"
+
+typedef enum {
+    WORKER_NOT_ASSIGNED,
+    WORKER_NOT_WORKING,
+    WORKER_WORKING
+} worker_status_t;
 
 struct _worker;
 
 typedef struct _running_job_node {
-    JobNode *job_node;
-    pthread_t task_tid;
+    job_node* task;
+    pid_t pid;
+    pthread_t tid;
     struct _running_job_node *next;
-} RunningJobNode;
+} running_job_node;
 
 typedef struct _running_job {
     struct _worker *worker;
     Job *job;
-    pthread_t job_tid;
-    RunningJobNode *head;
+    pthread_t tid;
+    running_job_node *head;
 } RunningJob;
 
 typedef struct _worker {
     int id;
-    int status;
+    worker_status_t status;
     RunningJob *running_job;
+    sem_t lock;
 } Worker;
 
-Worker *create_worker(int);
-void free_worker(Worker *);
+Worker* create_worker(int id);
+void free_worker(Worker* worker);
 
-// Commands (and signals)
-int run_job(Worker *, Job *);
-int get_status(Worker *);
-int get_job_status(Worker *);
-int start(Worker *);
-int stop(Worker *);
+// Commands
+int run_job(Worker* worker);
+int get_status(Worker* worker);
+int get_job_status(Worker* worker);
+int assign(Worker* worker, Job* job);
+int unassign(Worker* worker);
+
+// Signals
+int start(Worker* worker);
+int stop(Worker* worker);
 
 #endif

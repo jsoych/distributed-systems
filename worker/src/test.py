@@ -6,11 +6,11 @@ import unittest
 from status_codes import *
 
 # Define global constants
-WORKER = os.getenv('WORKER_SOCKET', '/Users/leejahsprock/pyoneer/run/worker3.socket')
+WORKER = os.getenv('WORKER_SOCKET', '/home/jsoychak/pyoneer/run/worker3.socket')
 BUFFSIZE = 1024
 
 # Get worker and job status codes
-worker_states = ['working', 'not_working']
+worker_states = ['not_assigned', 'working', 'not_working']
 job_states = [None, 'running', 'completed', 'incomplete']
 
 class SmallTest(unittest.TestCase):
@@ -34,7 +34,7 @@ class SmallTest(unittest.TestCase):
     def test_run_job(self):
         # Send command
         com = {
-            'command': 'run_job',
+            'command': 'run',
             'job': {
                 'id': 42,
                 'tasks': ['task.py']

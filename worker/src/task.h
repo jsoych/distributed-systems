@@ -1,8 +1,5 @@
-#ifndef _TASK_H
-#define _TASK_H
-#define _TASK_INCOMPLETE -1
-#define _TASK_RUNNING 1
-#define _TASK_COMPLETED 2
+#ifndef pyoneer_task_h
+#define pyoneer_task_h
 
 typedef struct _task {
     char *name;
