@@ -4,28 +4,55 @@
 
 #include "api.h"
 #include "common.h"
+#include "sys.h"
 
 #define BACKLOG 5
-#define BUFFLEN 4096
+#define BUFLEN 4096
+#define CAPACITY 8
+
+static enum {
+    CLIENT_ACTIVE,
+    CLIENT_INACTIVE
+};
+
+static struct api_client {
+    int status;
+    int client_fd;
+    pthread_t tid;
+    ApiServer* server;
+    struct api_client* next;
+};
+
+// API server configuration
+typedef struct _api_server {
+    Worker* worker;
+    Logger* logger;
+    char* socket_path;
+    int server_fd;
+    volatile sig_atomic_t stop_flag;
+    struct api_client* clients;
+} ApiServer;
 
 /* worker_thread: */
 void* worker_thread(void* arg) {
-    Client *client = (Client *) arg;
-    Job *job;
-    int nbytes;
-    char buf[BUFLEN], error[128];
+    struct api_client* client = (struct client*)arg;
+    Worker* worker = client->server->worker;
+    Logger* logger = client->server->logger;
+
     json_settings settings;
     settings.value_extra = json_builder_extra;
     json_value *cmd, *obj, *res, *val;
-    while ((nbytes = recv(client->sockfd, buf, BUFLEN, BUFLEN)) > 0) {
+
+    int nbytes;
+    char buf[BUFLEN], error[128];
+    while ((nbytes = recv(client->client_fd, buf, BUFLEN, 0)) > 0) {
         buf[(nbytes >= BUFLEN) ? BUFLEN - 1 : nbytes] = '\0';
         if ((res = json_object_new(0)) == NULL) {
             fprintf(stderr, "main: json_object_new: Error: Unable to create new JSON object\n");
             break;
         }
 
-        if (logging_level == logging_debug)
-            printf("api request: %s\n", buf);
+        debug(logger, "api request: %s\n", buf);
 
         if ((obj = json_parse_ex(&settings, buf, BUFLEN, error)) == NULL) {
             fprintf(stderr, "main: json_parse_ex: error: %s\n", error);
@@ -56,7 +83,8 @@ void* worker_thread(void* arg) {
                 goto send;
             }
 
-            if ((job = decode_job(val)) == NULL) {
+            Job* job = decode_job(val);
+            if (job == NULL) {
                 val = json_string_new("unable to decode job");
                 json_object_push(res, "error", val);
                 goto send;
@@ -99,10 +127,7 @@ void* worker_thread(void* arg) {
             json_object_push(res, "error", val);
         }
 
-        if (logging_level == logging_debug)
-            json_object_push(res, "debug", obj);
-        else
-            json_value_free(obj);
+        json_object_push(res, "debug", obj);
 
         send:
         if (json_measure(res) > BUFLEN) {
@@ -112,56 +137,91 @@ void* worker_thread(void* arg) {
             json_serialize(buf, res);
         }
 
-        if (send(client->sockfd, buf, strlen(buf), 0) == -1) {
+        if (send(client->client_fd, buf, strlen(buf), 0) == -1) {
             perror("main: send");
             json_builder_free(res);
             exit(EXIT_FAILURE);
         }
 
-        if (logging_level == logging_debug)
-            printf("api response: %s\n", buf);
+        debug(logger, "api response: %s\n", buf);
 
         json_builder_free(res);
     }
     
-    // update client status and close sock descriptor
-    client->status = client_inactive;
-    close(client->sockfd);
+    // close socket
+    close(client->client_fd);
     return NULL;
 }
 
-
-int api_server_init(api_server_t* server, Worker* worker,
-        const char* socket_path, api_log_level_t log_level) {
-    if (!server || !worker || !socket_path) return -1;
+ApiServer* api_server_create(Worker* worker, Logger* logger,
+        const char* socket_path) {
+    ApiServer* server = XMALLOC(sizeof(ApiServer));
     
-    server->worker;
+    server->logger = logger;
+    server->worker = worker;
 
     int len = strlen(socket_path);
     server->socket_path = malloc((len + 1)*sizeof(char));
     if (server->socket_path == NULL) {
-        // TODO: Write error message module
         perror("api_server_init: malloc");
         return -1;
     }
     strncpy(server->socket_path, socket_path, len);
+    server->socket_path[len] = '\0';
 
-    server->log_level = log_level;
     server->stop_flag = 0;
     server->server_fd = -1;
+    server->clients = NULL;
 
-    return;
+    return 0;
+}
+
+// Add client
+static struct api_client* api_server_add_client(ApiServer* server, int client_fd) {
+    struct api_client* client = malloc(sizeof(struct api_client));
+    if (client == NULL) {
+        perror("api_server_add_client: malloc");
+        return NULL;
+    }
+
+    client->client_fd = client_fd;
+    client->status = CLIENT_ACTIVE;
+    client->server = server;
+    client->next = NULL;
+
+    struct api_client* curr = server->clients;
+    struct api_client* prev = NULL;
+    while (curr) {
+        if (curr->status == CLIENT_INACTIVE) {
+            struct api_client* tmp = curr->next;
+            if (prev){
+                prev->next = tmp;
+            } else {
+                server->clients = tmp;
+            }
+            free(curr);
+            curr = tmp;
+        } else {
+            prev = curr;
+            curr = curr->next;
+        }
+    }
+
+    if (prev) {
+        prev->next = client;
+    } else {
+        server->clients = client;
+    }
+
+    return client;
 }
 
 // Start the API server loop (blocking call)
-int api_server_run(api_server_t* server) {
+int api_server_start(ApiServer* server) {
     if (!server) return -1;
 
     server->server_fd = socket(AF_LOCAL, SOCK_STREAM, 0);
-    if (server->server_fd == -1) {
-        perror("api_server_run: socket");
-        return -1;
-    }
+    XSYSCALL(server->server_fd);
 
     struct sockaddr_un addr;
     memset(&addr, 0, sizeof(addr));
@@ -186,8 +246,7 @@ int api_server_run(api_server_t* server) {
         return -1;
     }
 
-    if (server->log_level == API_LOG_DEBUG)
-        printf("API server running on %s\n", server->socket_path);
+    debug(server->logger, "API server running on %s\n", server->socket_path);
 
     while (!server->stop_flag) {
         int client_fd = accept(server->server_fd, NULL, NULL);
@@ -197,14 +256,40 @@ int api_server_run(api_server_t* server) {
             break;
         }
 
-        pthread_t tid;
-        int err = pthread_create(&tid, NULL, worker_thread, (void*)(intptr_t)client_fd);
-        
+        struct api_client* client = api_server_add_client(server, client_fd);
+        if (client == NULL) {
+            close(client_fd);
+        }
+
+        int err = pthread_create(&client->tid, NULL, worker_thread, client);
+        if (err != 0) {
+            fprintf(stderr, "api_server_run: pthread_create: %s\n", strerror(err));
+            break;
+        }
     }
+
+    return 0;
 }
 
 // Stop the API server gracefully
-int api_server_stop(api_server_t* server);
+int api_server_stop(ApiServer* server) {
+    struct api_client* curr = server->clients;
+    while (curr) {
+        if (curr->status == CLIENT_ACTIVE) {
+            int err = pthread_cancel(curr->tid);
+            if (err != 0)
+                fprintf(stderr, "api_server_stop: pthread_cancel: %s\n", strerror(err));
+        }
+        struct api_client* prev = curr;
+        curr = curr->next;
+        free(prev);
+    }
+    server->clients = NULL;
+    
+    close(server->server_fd);
+
+    return 0;
+}
 
 // Marshal status to JSON
 json_value* worker_status_to_json(Worker* worker);

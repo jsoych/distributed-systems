@@ -2,33 +2,21 @@
 #define pyoneer_api_h
 
 #include <signal.h>
+#include "logger.h"
 #include "worker.h"
 
-// Logging levels
-typedef enum {
-    API_LOG_INFO,
-    API_LOG_DEBUG
-} api_log_level_t;
+typedef struct api_server ApiServer;
 
-// API server configuration
-typedef struct {
-    Worker* worker;
-    const char* socket_path;
-    api_log_level_t log_level;
-    int server_fd;
-    volatile sig_atomic_t stop_flag;
-} api_server_t;
+ApiServer* api_server_create(Worker* worker, Logger* logger,
+    const char* socket_path);
+void api_server_destroy(ApiServer* server);
 
-// Initialize the API server
-// Returns 0 on success, -1 on failure
-int api_server_init(api_server_t* server, Worker* worker,
-    const char* socket_path, api_log_level_t log_level);
 
 // Start the API server loop (blocking call)
-int api_server_run(api_server_t* server);
+int api_server_start(ApiServer* server);
 
 // Stop the API server gracefully
-int api_server_stop(api_server_t* server);
+int api_server_stop(ApiServer* server);
 
 // Marshal status to JSON
 json_value* worker_status_to_json(Worker* worker);

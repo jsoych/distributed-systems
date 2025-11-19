@@ -34,18 +34,18 @@ typedef struct _worker {
     sem_t lock;
 } Worker;
 
-Worker* create_worker(int id);
-void free_worker(Worker* worker);
+Worker* worker_create(int id);
+void worker_destroy(Worker* worker);
 
 // Commands
-int run_job(Worker* worker);
-int get_status(Worker* worker);
-int get_job_status(Worker* worker);
-int assign(Worker* worker, Job* job);
-int unassign(Worker* worker);
+int worker_run_job(Worker* worker);
+int worker_get_status(Worker* worker);
+int wokrer_get_job_status(Worker* worker);
+int worker_assign(Worker* worker, Job* job);
+int worker_unassign(Worker* worker);
 
 // Signals
-int start(Worker* worker);
-int stop(Worker* worker);
+int worker_start(Worker* worker);
+int worker_stop(Worker* worker);
 
 #endif
