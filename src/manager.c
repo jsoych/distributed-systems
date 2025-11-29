@@ -8,6 +8,20 @@
 
 #define BUFLEN 1024
 
+// report types
+typedef enum {
+    missing_job_dependencies,
+    cyclic_job_dependencies
+} report_t;
+
+// Report object
+typedef struct _report {
+    report_t type;
+    union {
+        int integer
+    } u;
+} Report;
+
 /* init_queue: Initializes the queue. */
 static void init_queue(queue *q) {
     q->head = NULL;

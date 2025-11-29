@@ -7,6 +7,35 @@
 #include <sys/wait.h>
 #include "worker.h"
 
+typedef enum {
+    WORKER_NOT_ASSIGNED,
+    WORKER_NOT_WORKING,
+    WORKER_WORKING
+} worker_status_t;
+
+struct _worker;
+
+typedef struct _running_job_node {
+    job_node* task;
+    pid_t pid;
+    pthread_t tid;
+    struct _running_job_node *next;
+} running_job_node;
+
+typedef struct _running_job {
+    struct _worker *worker;
+    Job *job;
+    pthread_t tid;
+    running_job_node *head;
+} RunningJob;
+
+typedef struct _worker {
+    int id;
+    worker_status_t status;
+    RunningJob *running_job;
+    sem_t lock;
+} Worker;
+
 /* lock: Decrements the value of the semaphore and waits if its value
     is negative. If sem_waits fails, the system exits. */
 static void lock(sem_t *s, char *name) {

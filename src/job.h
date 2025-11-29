@@ -35,7 +35,7 @@ typedef struct {
 
 Job* create_job(int);
 void free_job(Job *);
-void add_task(Job *, char *);
+void add_task(Job *, Task *);
 json_value* encode_job(Job *);
 Job* decode_job(json_value *);
 

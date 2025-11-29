@@ -29,12 +29,12 @@ typedef struct _crew_job {
     job_status status;
 } job;
 
-// Worker object
-typedef struct _crew_worker {
+// crew worker
+typedef struct {
     int id;
     worker_status status;
     job job;
-} Worker;
+} crew_worker;
 
 // crew node
 typedef struct _crew_node {

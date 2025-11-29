@@ -10,19 +10,7 @@
 #include "project.h"
 #include "crew.h"
 
-// report types
-typedef enum {
-    missing_job_dependencies,
-    cyclic_job_dependencies
-} report_t;
-
-// Report object
-typedef struct _report {
-    report_t type;
-    union {
-        int integer
-    } u;
-} Report;
+typedef struct _report Report;
 
 // running project node
 typedef struct _running_project_node {
@@ -62,15 +50,19 @@ typedef struct _manager {
     sem_t lock;
 } Manager;
 
-Manager *create_manager(int);
-void free_manager(Manager *);
+Manager* manager_create(int id);
+void manager_destroy(Manager* manager);
 
 // Commands
-Report *check_project(Manager *, Project *);
-int get_status(Manager *);
-int get_project_status(Manager *);
-int run_project(Manager *, Project *);
-int start(Manager *);
-int stop(Manager *);
+int manager_get_status(Manager* manager);
+int manager_get_project_status(Manager* manager);
+int manager_run_project(Manager* manager, Project* project);
+int manager_assign(Manager* manager, Project* project);
+int manager_unassign(Manager* manager);
+Report* manager_check_project(Manager *, Project *);
+
+// Signals
+int manager_start(Manager *);
+int manager_stop(Manager *);
 
 #endif
