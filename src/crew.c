@@ -9,111 +9,45 @@
 
 #define BUFLEN 1024
 
-// worker api commands
-static char *START = "{\"command\":\"start\"}";
-static char *STOP = "{\"command\":\"stop\"}";
+// Api commands
+static enum {
+    CMD_RUN = 0,
+    CMD_GET_STATUS,
+    CMD_GET_BLUEPRINT_STATUS,
+    CMD_ASSIGN,
+    CMD_UNASSIGN
+};
 
-/* mutex_lock: Locks the mutex lock. If there is a system failure, mutex_lock
-    prints a error message and exits the process. */
-static void mutex_lock(pthread_mutex_t *lock, char *name) {
-    int old_errno;
-    if ((old_errno = pthread_mutex_lock(lock)) != 0) {
-        fprintf(stderr, "crew: %s: %s\n", name, strerror(old_errno));
-        exit(EXIT_FAILURE);
-    }
-    return;
-}
-
-/* mutex_unlock: Unlocks the mutex lock. If there is a system failue, 
-    mutex_unlock prints a error and exits the process. */
-static void mutex_unlock(pthread_mutex_t *lock, char *name) {
-    int old_errno;
-    if ((old_errno = pthread_mutex_unlock(lock)) != 0) {
-        fprintf(stderr, "crew: %s: %s\n", name, strerror(old_errno));
-        exit(EXIT_FAILURE);
-    }
-    return;
-}
-
-/* job_status_map: Maps the job status string returns its corresponding status
-    code. Otherwise, returns -1. */
-static job_status job_status_map(char *status) {
-    if (strcmp(status, "running") == 0)
-        return job_running;
-    else if (strcmp(status, "completed") == 0)
-        return job_completed;
-    else if (strcmp(status, "incomplete") == 0)
-        return job_incomplete;
-    else
-        return -1;
-}
-
-/* worker_status_map: Maps the worker status string returns its corresponding
-    status code. Otherwise, returns -1. */
-static worker_status worker_status_map(char *status) {
-    if (strcmp(status, "not_assigned") == 0)
-        return worker_not_assigned;
-    else if (strcmp(status, "not_working") == 0)
-        return worker_not_working;
-    else if (strcmp(status, "working") == 0)
-        return worker_working;
-    else
-        return -1;
-}
-
-/* create_worker: Creates a new worker. */
-static Worker *create_worker(int id) {
-    Worker *worker;
-    if ((worker = malloc(sizeof(Worker))) == NULL) {
-        perror("crew: create_worker: malloc");
-        exit(EXIT_FAILURE);
-    }
-    worker->id = id;
-    worker->status = worker_not_assigned;
-    worker->job.id = -1;
-    worker->job.status = -1;
-    return worker;
-}
-
-static json_value *send_command(Worker *, json_value *);
-
-/* free_worker: Frees all resources allocated to the worker. */
-static void free_worker(Worker *worker) {
-    // Stop worker
-    json_value *cmd, *res;
-    char *stop = "{\"command\":\"stop\"}";
-    if (worker->status == worker_working) {
-        cmd = json_parse(stop, strlen(stop));
-        res = send_command(worker, cmd);
-        json_value_free(cmd);
-        json_value_free(res);
-    }
-    free(worker);
-    return;
-}
+static const char* const CMD_API_JSON[] = {
+    [CMD_RUN]                   = "{\"command\":\"run\"}",
+    [CMD_GET_STATUS]            = "{\"command\":\"get_status\"}",
+    [CMD_GET_BLUEPRINT_STATUS]  = "{\"command\":\"get_blueprint\"}",
+    [CMD_UNASSIGN]              = "{\"command\":\"unassign\"}"
+};
 
 /* send_command: Sends a command to the worker and returns its response. */
-static json_value *send_command(Worker *worker, json_value *cmd) {
+static json_value* send_command(Worker *worker, json_value *cmd) {
     int sockfd, nbytes;
     if ((sockfd = socket(AF_LOCAL, SOCK_STREAM, 0)) == -1) {
         perror("crew: send_command: socket");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
     // Connect to the worker
-    struct sockaddr_un servaddr;
-    bzero(&servaddr, sizeof(servaddr));
-    servaddr.sun_family = AF_LOCAL;
-#ifdef __APPLE__
-    snprintf(servaddr.sun_path, sizeof(servaddr.sun_path),
-        "/Users/leejahsprock/pyoneer/run/worker%d.socket", worker->id);
-#elif __linux__
-    snprintf(servaddr.sun_path, sizeof(servaddr.sun_path),
-        "/home/jsoychak/pyoneer/run/worker%d.socket", worker->id);
-#endif
-    if (connect(sockfd, &servaddr, sizeof(servaddr)) == -1) {
+    struct sockaddr_un addr = {0};
+    addr.sun_family = AF_LOCAL;
+
+    // TODO: do something better please (':
+    char* dir = getenv("PYONEER_DIR");
+    int size = sizeof(addr.sun_path);
+    char* fmt[size];
+    char* end = stpncpy(fmt, dir, size);
+    stpncpy(end, "/worker%d.sock", size);
+    snprintf(addr.sun_path, size, fmt, worker->id);
+
+    if (connect(sockfd, &addr, sizeof(addr)) == -1) {
         perror("crew: send_command: connect");
-        exit(EXIT_FAILURE);
+        return NULL;
     }
 
     // Send command
@@ -127,7 +61,8 @@ static json_value *send_command(Worker *worker, json_value *cmd) {
 
     if (send(sockfd, buf, strlen(buf), 0) == -1) {
         perror("crew: send_command: send");
-        exit(EXIT_FAILURE);
+        close(sockfd);
+        return NULL;
     }
 
     // Return response
@@ -143,6 +78,57 @@ static json_value *send_command(Worker *worker, json_value *cmd) {
     }
     close(sockfd);
     return res;
+}
+
+/* mutex_lock: Locks the mutex lock. If there is a system failure, mutex_lock
+    prints a error message and exits the process. */
+static void mutex_lock(pthread_mutex_t *lock, char *name) {
+    int err = pthread_mutex_lock(lock);
+    if (err != 0) {
+        fprintf(stderr, "crew: %s: %s\n", name, strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+/* mutex_unlock: Unlocks the mutex lock. If there is a system failue, 
+    mutex_unlock prints a error and exits the process. */
+static void mutex_unlock(pthread_mutex_t *lock, char *name) {
+    int err = pthread_mutex_unlock(lock);
+    if (err != 0) {
+        fprintf(stderr, "crew: %s: %s\n", name, strerror(err));
+        exit(EXIT_FAILURE);
+    }
+    return;
+}
+
+/* crew_worker_create: Creates a new worker. */
+static crew_worker* crew_worker_create(int id) {
+    crew_worker* worker = malloc(sizeof(crew_worker));
+    if (worker == NULL) {
+        perror("crew_worker_create: malloc");
+        return NULL;
+    }
+    worker->id = id;
+    worker->status = WORKER_NOT_ASSIGNED;
+    worker->job.id = -1;
+    worker->job.status = -1;
+    return worker;
+}
+
+/* free_worker: Frees all resources allocated to the worker. */
+static void free_worker(Worker *worker) {
+    // Stop worker
+    json_value *cmd, *res;
+    char *stop = "{\"command\":\"stop\"}";
+    if (worker->status == worker_working) {
+        cmd = json_parse(stop, strlen(stop));
+        res = send_command(worker, cmd);
+        json_value_free(cmd);
+        json_value_free(res);
+    }
+    free(worker);
+    return;
 }
 
 /* init_crew_list: Initializes the list. */
@@ -212,9 +198,9 @@ Crew *create_crew(void) {
     crew->freelist.head = NULL;
     crew->freelist.tail = NULL;
     crew->freelist.len = 0;
-    int old_errno;
-    if ((old_errno = pthread_mutex_init(&crew->lock, NULL)) != 0) {
-        fprintf(stderr, "crew: create_crew: pthread_mutex_init: %s\n", strerror(old_errno));
+    int err;
+    if ((err = pthread_mutex_init(&crew->lock, NULL)) != 0) {
+        fprintf(stderr, "crew: create_crew: pthread_mutex_init: %s\n", strerror(err));
         exit(EXIT_FAILURE);
     }
     return crew;
@@ -222,9 +208,9 @@ Crew *create_crew(void) {
 
 /* free_crew: Frees all the resources allocated to the crew. */
 void free_crew(Crew *crew) {
-    int old_errno;
-    if ((old_errno = pthread_mutex_lock(&crew->lock)) != 0) {
-        fprintf(stderr, "crew: free_crew: pthread_mutex_lock: %s\n", strerror(old_errno));
+    int err;
+    if ((err = pthread_mutex_lock(&crew->lock)) != 0) {
+        fprintf(stderr, "crew: free_crew: pthread_mutex_lock: %s\n", strerror(err));
         exit(EXIT_FAILURE);
     }
     
@@ -236,13 +222,13 @@ void free_crew(Crew *crew) {
         free_crew_list(&crew->workers[i]);
 
     unlock:
-    if ((old_errno = pthread_mutex_unlock(&crew->lock)) != 0) {
-        fprintf(stderr, "crew: free_crew: pthread_mutex_unlock: %s\n", strerror(old_errno));
+    if ((err = pthread_mutex_unlock(&crew->lock)) != 0) {
+        fprintf(stderr, "crew: free_crew: pthread_mutex_unlock: %s\n", strerror(err));
         exit(EXIT_FAILURE);
     }
 
-    if ((old_errno = pthread_mutex_destroy(&crew->lock)) != 0) {
-        fprintf(stderr, "crew: free_crew: pthread_mutex_destroy: %s\n", strerror(old_errno));
+    if ((err = pthread_mutex_destroy(&crew->lock)) != 0) {
+        fprintf(stderr, "crew: free_crew: pthread_mutex_destroy: %s\n", strerror(err));
         exit(EXIT_FAILURE);
     }
     free(crew);
@@ -459,12 +445,12 @@ int add_worker(Crew *crew, int id) {
         perror("crew: add_crew_worker: malloc");
         exit(EXIT_FAILURE);
     }
-    node->worker = create_worker(id);
+    node->worker = crew_worker_create(id);
 
     // create worker thread
-    int old_errno;
-    if ((old_errno = pthread_create(&node->tid, NULL, worker_thread, node->worker)) != 0) {
-        fprintf(stderr, "crew: add_worker: pthread_create: %s\n", strerror(old_errno));
+    int err;
+    if ((err = pthread_create(&node->tid, NULL, worker_thread, node->worker)) != 0) {
+        fprintf(stderr, "crew: add_worker: pthread_create: %s\n", strerror(err));
         mutex_unlock(&crew->lock, "add_worker");
         return -1;
     }

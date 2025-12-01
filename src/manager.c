@@ -973,3 +973,24 @@ void free_manager(Manager *man) {
     free(man);
     return;
 }
+
+/* manager_status_map: Maps manager status codes to its corresponding
+    JSON value. */
+json_value *manager_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _MANAGER_NOT_ASSIGNED:
+            val = json_string_new("not_assigned");
+            break;
+        case _MANAGER_ASSIGNED:
+            val = json_string_new("assigned");
+            break;
+        case _MANAGER_NOT_WORKING:
+            val = json_string_new("not_working");
+            break;
+        case _MANAGER_WORKING:
+            val = json_string_new("working");
+            break;
+    }
+    return val;
+}

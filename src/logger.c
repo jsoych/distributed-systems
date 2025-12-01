@@ -1,72 +1,62 @@
-#include "logger.h"
-#include "sys.h"
 #include <stdio.h>
 #include <stdlib.h>
-#include <pthread.h>
-#include <stdarg.h>
 #include <string.h>
 
-struct Logger {
-    FILE* file;
-    logger_level_t level;
-    pthread_mutex_t lock;
-};
+#include "logger.h"
 
-// Factory
-Logger* logger_create(logger_level_t level, const char* file_path) {
+/* logger_create: Creates a new logger and returns it. */
+Logger* logger_create(int level, const char* format) {
     Logger* logger = malloc(sizeof(Logger));
-    PTR_CHECK(logger, "malloc Logger failed");
+    if (logger == NULL) {
+        perror("logger_create: malloc");
+        return NULL;
+    }
 
-    logger->level = level;
-    if (file_path)
-        SYSCALL_LOG(NULL, (logger->file = fopen(file_path, "a")) == NULL ? -1 : 0);
-    else
-        logger->file = NULL;
+    int len = strlen(format);
+    logger->format = malloc((len + 1)*sizeof(char));
+    if (logger->format == NULL) {
+        perror("logger_create: malloc");
+        free(logger);
+        return NULL;
+    }
+    strcpy(logger->format, format);
+    logger->format[len] = '\0';
 
-    PTHREAD_CHECK(pthread_mutex_init(&logger->lock, NULL));
+    int err = pthread_mutex_init(&logger->lock, NULL);
+    if (err != 0) {
+        fprintf(stderr, "logger_create: pthread_mutex_init: %s", strerror(err));
+        free(logger->format);
+        free(logger);
+        return NULL;
+    }
 
     return logger;
 }
 
-// Destroy
+/* logger_destroy: Destroys the logger and its resources. */
 void logger_destroy(Logger* logger) {
-    if (logger->file)
-        fclose(logger->file);
-
-    PTHREAD_CHECK(pthread_mutex_destroy(&logger->lock));
+    pthread_mutex_destroy(&logger->lock);
+    free(logger->format);
     free(logger);
 }
 
-// Internal logging helper
-static int logger_log(Logger* logger, logger_level_t msg_level, const char* fmt, va_list args) {
-    PTHREAD_CHECK(pthread_mutex_lock(&logger->lock));
+/* logger_stream_handler: Prints the log to the stdout. */
+static void logger_stream_handler(Logger* logger, const char* message) {
+    printf(logger->format, message);
+}
 
-    vfprintf(stdout, fmt, args);
-    fprintf(stdout, "\n");
-
-    if (msg_level == LOGGER_DEBUG)
-        vfprintf(stderr, fmt, args), fprintf(stderr, "\n");
-
-    if (logger->file)
-        vfprintf(logger->file, fmt, args), fprintf(logger->file, "\n");
-
-    PTHREAD_CHECK(pthread_mutex_unlock(&logger->lock));
+/* logger_info: Logs info message and returns 0. */
+int logger_info(Logger* logger, const char* message) {
+    logger_stream_handler(logger, message);
     return 0;
 }
 
-// Public methods
-int logger_info(Logger* logger, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    int res = logger_log(logger, LOGGER_INFO, fmt, args);
-    va_end(args);
-    return res;
-}
-
-int logger_debug(Logger* logger, const char* fmt, ...) {
-    va_list args;
-    va_start(args, fmt);
-    int res = logger_log(logger, LOGGER_DEBUG, fmt, args);
-    va_end(args);
-    return res;
+/* logger_debug: Logs debug message and returns 0. */
+int logger_debug(Logger* logger, const char* message) {
+    switch (logger->level) {
+        case LOGGER_DEBUG:
+            logger_stream_handler(logger, message);
+        case LOGGER_INFO:
+    }
+    return 0;
 }

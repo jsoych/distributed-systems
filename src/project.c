@@ -657,3 +657,30 @@ Project *decode_project(json_value *obj) {
     }
     return proj;
 }
+
+/* project_status_map: Maps project status codes to its corresponding
+    JSON value. */
+json_value* project_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case _PROJECT_READY:
+            val = json_string_new("ready");
+            break;
+        case _PROJECT_NOT_READY:
+            val = json_string_new("not_ready");
+            break;
+        case _PROJECT_RUNNING:
+            val = json_string_new("running");
+            break;
+        case _PROJECT_COMPLETED:
+            val = json_string_new("completed");
+            break;
+        case _PROJECT_INCOMPLETE:
+            val = json_string_new("incomplete");
+            break;
+        default:
+            val = json_null_new();
+            break;
+    }
+    return val;
+}

@@ -4,72 +4,63 @@
 #include <pthread.h>
 #include "json.h"
 #include "json-builder.h"
+#include "worker.h"
+#include "job.h"
 
-#define _CREW_MAXLEN 512
+#define CREW_MAXLEN 512
 
-// worker statuses
-typedef enum {
-    worker_not_assigned,
-    worker_not_working,
-    worker_working
-} worker_status;
-
-// job statuses
-typedef enum {
-    job_not_ready,
-    job_ready,
-    job_running,
-    job_completed,
-    job_incomplete
-} job_status;
-
-// job
+// job structure
 typedef struct _crew_job {
     int id;
-    job_status status;
-} job;
+    int status;
+} crew_job;
 
-// crew worker
+// worker structure
 typedef struct {
     int id;
-    worker_status status;
-    job job;
+    int status;
+    crew_job job;
 } crew_worker;
 
 // crew node
 typedef struct _crew_node {
-    Worker *worker;
-    struct _crew_node *next;
-    struct _crew_node *prev;
-    struct _crew_node *next_free;
-    struct _crew_node *prev_free;
+    crew_worker* worker;
+    struct _crew_node* next;
+    struct _crew_node* prev;
+    struct _crew_node* next_free;
+    struct _crew_node* prev_free;
     pthread_t tid;
 } crew_node;
 
 // crew list
 typedef struct _crew_list {
-    crew_node *head;
-    crew_node *tail;
+    crew_node* head;
+    crew_node* tail;
     int len;
 } crew_list;
 
 // Crew object
 typedef struct _crew {
-    crew_list workers[_CREW_MAXLEN];
+    crew_list workers[CREW_MAXLEN];
     crew_list freelist;
     int len;
     pthread_mutex_t lock;
     pthread_t tid;
 } Crew;
 
-Crew *create_crew();
-void free_crew(Crew *);
-int add_worker(Crew *, int);
-int remove_worker(Crew *, int);
-worker_status get_worker_status(Crew *, int);
-job_status get_worker_job_status(Crew *, int);
-int assign_job(Crew *, json_value *);
-int unassign_worker(Crew *, int);
-void broadcast_command(Crew *, json_value *);
+// Constructor and destructor
+Crew *crew_create();
+void crew_destroy(Crew* crew);
+
+// Methods
+int crew_add(Crew* crew, int id);
+int crew_remove(Crew* crew, int id);
+int crew_get_status(Crew* crew, int id);
+int crew_get_job_status(Crew* crew, int id);
+int crew_assign_job(Crew* crew, Job* job);
+int crew_unassign(Crew* crew, int id);
+
+void crew_send_command(Crew* crew, int id, const char* command);
+void crew_broadcast(Crew* crew, const char* command);
 
 #endif

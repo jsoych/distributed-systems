@@ -7,35 +7,6 @@
 #include <sys/wait.h>
 #include "worker.h"
 
-typedef enum {
-    WORKER_NOT_ASSIGNED,
-    WORKER_NOT_WORKING,
-    WORKER_WORKING
-} worker_status_t;
-
-struct _worker;
-
-typedef struct _running_job_node {
-    job_node* task;
-    pid_t pid;
-    pthread_t tid;
-    struct _running_job_node *next;
-} running_job_node;
-
-typedef struct _running_job {
-    struct _worker *worker;
-    Job *job;
-    pthread_t tid;
-    running_job_node *head;
-} RunningJob;
-
-typedef struct _worker {
-    int id;
-    worker_status_t status;
-    RunningJob *running_job;
-    sem_t lock;
-} Worker;
-
 /* lock: Decrements the value of the semaphore and waits if its value
     is negative. If sem_waits fails, the system exits. */
 static void lock(sem_t *s, char *name) {
@@ -186,7 +157,7 @@ int get_job_status(Worker *worker) {
 
 /* task_status_handler: Sets the status of the task as incomplete. */
 static void task_status_handler(void *arg) {
-    job_node* task = (job_node *) arg;
+    job_node* task = (job_node*) arg;
     task->status = TASK_INCOMPLETE;
     return;
 }
@@ -438,8 +409,8 @@ int start(Worker *worker) {
     return get_job_status(worker);
 }
 
-/* stop: Stops the worker's running job and returns the job status. */
-int stop(Worker *worker) {
+/* worker_stop: Stops the worker's running job and returns the job status. */
+int worker_stop(Worker *worker) {
     if (worker->status != WORKER_WORKING)
         return get_job_status(worker);
 
@@ -458,4 +429,26 @@ int stop(Worker *worker) {
     }
     worker->status = WORKER_NOT_WORKING;
     return get_job_status(worker);
+}
+
+
+/* worker_status_map: Maps worker status codes to its corresponding
+    JSON value. */
+json_value *worker_status_map(int status) {
+    json_value *val;
+    switch (status) {
+        case WORKER_NOT_ASSIGNED:
+            val = json_string_new("not_assigned");
+            break;
+        case WORKER_NOT_WORKING:
+            val = json_string_new("not_working");
+            break;
+        case WORKER_WORKING:
+            val = json_string_new("working");
+            break;
+        default:
+            val = json_null_new();
+            break;
+    }
+    return val;
 }

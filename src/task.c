@@ -2,46 +2,40 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
 #include "task.h"
 
-#ifdef __APPLE__
-static char python[] = "/Users/leejahsprock/miniconda3/envs/pyoneer/bin/python";
-static char tasks_dir[] = "/Users/leejahsprock/cs/distributed-systems/worker/tasks/";
-#elif __linux__
-static char python[] = "/home/jsoychak/miniconda3/bin/python";
-static char tasks_dir[] = "/home/jsoychak/pyoneer/var/lib/tasks/";
-#endif
-
-/* create_task: Creates a new task. */
-Task *create_task(char *name) {
-    Task *task;
-    if ((task = malloc(sizeof(Task))) == NULL) {
-        perror("task: create_task: malloc");
-        exit(EXIT_FAILURE);
+/* task_create: Creates a new task. */
+Task* task_create(const char* name) {
+    int len = strlen(name);
+    Task* task = malloc(sizeof(Task) + (len + 1)*sizeof(char));
+    if (task == NULL) {
+        perror("task_create: malloc");
+        return NULL;
     }
-
-    char *s;
-    if ((s = malloc(strlen(tasks_dir) + strlen(name) + 1)) == NULL) {
-        perror("task: create_task: malloc");
-        exit(EXIT_FAILURE);
-    }
-    task->name = s;
-    s = stpcpy(s,tasks_dir);
-    s = stpcpy(s,name);
-    
+    task->status = TASK_READY;
+    strcpy(task->name, name);
+    task->name[len] = '\0'; 
     return task;
 }
 
-/* free_task: Frees memory allocated to the task. */
-void free_task(Task *task) {
-    free(task->name);
+/* task_destroy: Frees the memory allocated to the task. */
+void task_destroy(Task *task) {
     free(task);
 }
 
-/* run_task: Runs the task in place. */
-int run_task(Task *task) {
-    if (execl(python, "python", task->name, NULL) == -1) {
-        perror("task: run_task: execl");
-        exit(EXIT_FAILURE);
+/* task_run: Executes the task by overlaying the running process with the
+    python interpreter. */
+int task_run(Task* task, const char* python) {
+    char* task_dir = getenv("PYONEER_TASK_DIR");
+    int len = strlen(task_dir) + strlen(task->name) + 2;
+    char task_path[len];
+    char* end = strcpy(task_path, task_dir);
+    end = strcpy(end, "/");
+    strcpy(end, task->name);
+    if (execl(python, task_path, NULL) == -1) {
+        perror("task_run: execl");
+        return -1;
     }
+    return 0;
 }

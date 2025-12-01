@@ -1,17 +1,8 @@
-#ifndef pyoneer_job_h
-#define pyoneer_job_h
+#ifndef _JOB_H
+#define _JOB_H
 
 #include "json.h"
-#include "json-builder.h"
 #include "task.h"
-
-typedef enum {
-    TASK_NOT_READY,
-    TASK_READY,
-    TASK_RUNNING,
-    TASK_COMPLETED,
-    TASK_INCOMPLETE
-} task_status_t;
 
 typedef enum {
     JOB_NOT_READY,
@@ -19,24 +10,33 @@ typedef enum {
     JOB_RUNNING,
     JOB_COMPLETED,
     JOB_INCOMPLETE
-} job_status_t;
+};
 
-typedef struct {
-    task_status_t status;
+typedef struct _job_node {
     Task* task;
     struct _job_node *next;
 } job_node;
 
 typedef struct {
     int id;
-    job_status_t status;
+    int status;
+    int size;
     job_node *head;
 } Job;
 
-Job* create_job(int);
-void free_job(Job *);
-void add_task(Job *, Task *);
-json_value* encode_job(Job *);
-Job* decode_job(json_value *);
+// Constructor and Destructor
+Job* job_create(int id);
+void job_destroy(Job* job);
+
+// Methods
+int job_get_status(Job* job);
+int job_add_task(Job* job, Task* task);
+json_value* job_encode(Job *job);
+
+// Helpers
+json_value* job_encode(Job* job);
+Job* job_decode(const json_value *obj);
+json_value* job_status_encode(int status);
+int job_status_decode(json_value* obj);
 
 #endif

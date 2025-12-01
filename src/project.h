@@ -1,46 +1,55 @@
 #ifndef _PROJECT_H
 #define _PROJECT_H
-#define _PROJECT_INCOMPLETE -2
-#define _PROJECT_NOT_READY -1
-#define _PROJECT_READY 0
-#define _PROJECT_RUNNING 1
-#define _PROJECT_COMPLETED 2
-#define MAXLEN 512
+
+#define TABLESIZE 512
 
 #include "job.h"
 #include "json.h"
 #include "json-builder.h"
 
+enum {
+    PROJECT_NOT_READY,
+    PROJECT_READY,
+    PROJECT_RUNNING,
+    PROJECT_COMPLETED,
+    PROJECT_INCOMPLETE
+};
+
 // project node
 typedef struct _project_node {
-    Job *job;
-    int *deps;
+    Job* job;
+    int* deps;
     int len;
-    struct _project_node *next;
-    struct _project_node *prev;
-    struct _project_node *next_ent;
+    struct _project_node* next;
+    struct _project_node* prev;
+    struct _project_node* next_ent;
 } project_node;
 
 // jobs list
-typedef struct _jobs_list {
-    project_node *head;
-    project_node *tail;
-} jobs_list;
+typedef struct _project_list {
+    project_node* head;
+    project_node* tail;
+} project_list;
 
 // Project object
 typedef struct _project {
     int id;
     int status;
     int len;
-    jobs_list jobs;
-    project_node *jobs_table[MAXLEN];
+    project_list jobs_list;
+    project_node* jobs_table[TABLESIZE];
 } Project;
 
-Project *create_project(int);
-void free_project(Project *);
-void add_job(Project *, Job *, int [], int);
-void remove_job(Project *, int);
-json_value *encode_project(Project *);
-Project *decode_project(json_value *);
+// Construtor and destructor
+Project *project_create(int id);
+void project_destroy(Project* project);
+
+// Methods
+void project_add_job(Project* project, Job* job, int* deps, int size);
+void project_remove_job(Project* project, int id);
+
+// Helpers
+json_value* project_encode(Project* project);
+Project* project_decode(json_value* obj);
 
 #endif
