@@ -4,7 +4,8 @@
             "name": "Linux",
             "includePath": [
                 "${workspaceFolder}/**",
-                "/usr/include"
+                "/Users/leejahsprock/cs/distributed-systems/include",
+                "/Users/leejahsprock/cs/distributed-systems/tests/shared"
             ],
             "defines": [],
             "compilerPath": "/usr/bin/gcc",

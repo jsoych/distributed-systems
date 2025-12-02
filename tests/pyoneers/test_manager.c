@@ -3,8 +3,8 @@
 #include "manager.h"
 #include "unittest.h"
 
-#define success unittest_success
-#define failure unittest_failure
+#define success UNITTEST_SUCCESS
+#define failure UNITTEST_FAILURE
 #define printr(result, name, msg) unittest_print_result("test-manager", result, name, msg)
 
 
@@ -19,13 +19,13 @@ int main() {
         printr(failure, "manager id", "unexpected value");
 
     // check manager status
-    if (man->status == _MANAGER_NOT_ASSIGNED)
+    if (man->status == MANAGER_NOT_ASSIGNED)
         printr(success, "manager status", NULL);
     else
         printr(failure, "manager status", "unexpected value");
 
     // get status
-    if (get_status(man) == _MANAGER_NOT_ASSIGNED)
+    if (get_status(man) == MANAGER_NOT_ASSIGNED)
         printr(success, "get_status", NULL);
     else
         printr(failure, "get_status", "unexpected value");

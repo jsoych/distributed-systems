@@ -1,26 +1,27 @@
-target_exec := pyoneer
+TARGET := pyoneer
 
-build_dir := ./build
-src_dir := ./src
+SRC_DIR := src
+BUILD_DIR := build
 
-src := $(shell find $(src_dir) -name '*.c')
+CC := gcc
+CFLAGS := -Wall -Wextra -Wpedantic
+LDFLAGS := -lm
 
-objs := $(src:%=$(build_dir)/%.o)
+# Find all source files
+SRCS := $(shell find $(SRC_DIR) -name '*.c')
 
-cc := gcc
-cflags := -Wall -Wextra -Wpedantic
-ldflags := -lmath
+OBJS := $(notdir $(SRCS))
+OBJS := $(OBJS:.c=.o)
+OBJS := $(addprefix $(BUILD_DIR)/,$(OBJS))
 
-$(build_dir)/$(target_exec): $(objs)
-	$(cc) $(objs) -o $@ $(ldflags)
+TEST_DIR := tests/src
 
-$(build_dir)/%.c.o: %.c
-	mkdir -p $(dir $@)
-	$(cc) $(cflags) -c $< -o $@
+# Debug build
+debug: CFLAGS += -g -O0 -DDEBUG
+debug: all
 
-debug: cflags += -g -O0 -DDEBUG
-debug: $(build_dir)/$(target_exec)
+# Clean
+.PHONY: all debug clean
 
-.PHONY: clean debug
 clean:
-	rm -r $(build_dir)
+	rm -rf $(BUILD_DIR)/*

@@ -51,7 +51,7 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
-    API* server = api_create(pyoneer, logger, socket_path);
+    Api* server = api_create(pyoneer, logger, socket_path);
     if (server == NULL) {
         fprintf(stderr, "main: Error: Unable to create server\n");
         pyoneer_destroy(pyoneer);

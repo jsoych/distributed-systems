@@ -3,8 +3,6 @@ import json
 import socket
 import unittest
 
-from status_codes import *
-
 # Define global constants
 WORKER = os.getenv('WORKER_SOCKET', '/home/jsoychak/pyoneer/run/worker3.socket')
 BUFFSIZE = 1024
