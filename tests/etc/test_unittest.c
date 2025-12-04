@@ -22,23 +22,23 @@
 int main() {
     // Test compare integers
     printf("test compare integers\n");
-    const int a = 1;
-    const int b = 1;
-    const int c = 2;
-    TEST_CMP(CMPINT(&a, &b), 0);
-    TEST_CMP(CMPINT(&a, NULL), 1);
-    TEST_CMP(CMPINT(NULL, &b), 1);
+    const int ia = 1;
+    const int ib = 1;
+    const int ic = 2;
+    TEST_CMP(CMPINT(&ia, &ib), 0);
+    TEST_CMP(CMPINT(&ia, NULL), 1);
+    TEST_CMP(CMPINT(NULL, &ib), 1);
     TEST_CMP(CMPINT(NULL, NULL), 0);
-    TEST_CMP(CMPINT(&a, &c), 1);
+    TEST_CMP(CMPINT(&ia, &ic), 1);
 
     // Test compare string
     printf("\ntest compare string\n");
     const char* sa = "hello";
     const char* sb = "hello";
     const char* sc = "there";
-    TEST_CMP(CMPSTR(a, b), 0);
-    TEST_CMP(CMPSTR(a, NULL), 1);
-    TEST_CMP(CMPSTR(NULL, b), 1);
+    TEST_CMP(CMPSTR(sa, sb), 0);
+    TEST_CMP(CMPSTR(sa, NULL), 1);
+    TEST_CMP(CMPSTR(NULL, sb), 1);
     TEST_CMP(CMPSTR(NULL, NULL), 0);
     TEST_CMP(CMPSTR(sa, sc), 1);
 
@@ -47,12 +47,12 @@ int main() {
     json_value* ja = json_null_new();
     json_value* jb = json_null_new();
     TEST_CMP(CMPJSON(ja, jb), 0);
-    TEST_CMP(CMPJSON(a, NULL), 1);
-    TEST_CMP(CMPJSON(NULL, b), 1);
+    TEST_CMP(CMPJSON(ja, NULL), 1);
+    TEST_CMP(CMPJSON(NULL, jb), 1);
     TEST_CMP(CMPJSON(NULL, NULL), 0);
     
     json_value* dbl = json_double_new(-42.0);
-    TEST_CMP(CMPJSON(a, dbl), 1);
+    TEST_CMP(CMPJSON(ja, dbl), 1);
     
     json_value_free(ja);
     json_value_free(jb);

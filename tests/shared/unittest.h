@@ -10,38 +10,47 @@ typedef enum {
     UNITTEST_SUCCESS,
     UNITTEST_FAILURE,
     UNITTEST_ERROR
-} unittest_result;
+} result_t;
 
-typedef int (*unittest_compare)(const void *, const void *);
-
-typedef unittest_result (*unittest_test)(unittest_compare, const void *);
+typedef enum {
+    CASE_INT,
+    CASE_NUM,
+    CASE_STR,
+    CASE_JSON,
+    CASE_TASK,
+    CASE_JOB
+} case_t;
 
 typedef struct {
-    void* expected;
-    unittest_compare cmp;
-    const char* name;
+    int type;
+    union {
+        int integer;
+        double number;
+        char* string;
+        json_value* json;
+        Task* task;
+        Job* job;
+    } as;
+    char name[];
 } unittest_case;
 
+typedef result_t (*unittest_test)(unittest_case*);
+
 typedef struct _unittest {
-    char* name;
     int size;
     int capacity;
     unittest_test* tests;
     unittest_case** cases;
+    char name[];
 } Unittest;
 
 Unittest* unittest_create(const char* name);
 void unittest_destroy(Unittest* ut);
 
-int unittest_add(
-    Unittest* ut, const char* name, unittest_test tc, 
-    unittest_compare cmp, void* expected
-);
+int unittest_add(Unittest* ut, const char* name, unittest_test tc, 
+    case_t type, void* expected);
 int unittest_run(Unittest* ut);
 
-int unittest_compare_int(const void* a, const void* b);
-int unittest_compare_string(const void* a, const void* b);
-int unittest_compare_task(const void* a, const void* b);
-int unittest_compare_json_value(const void* a, const void* b);
+int unittest_compare_task(const Task* a, const Task* b);
 
 #endif

@@ -13,7 +13,7 @@ enum {
 
 typedef struct _task {
     int status;
-    char* name;
+    char name[];
 } Task;
 
 // Construtor and destructor

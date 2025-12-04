@@ -21,13 +21,13 @@ Job* job_create(int id) {
     return job;
 }
 
-/* job_free: Frees the memory allocated to the job. */
-void job_free(Job *job) {
+/* job_destroy: Frees the memory allocated to the job. */
+void job_destroy(Job *job) {
     job_node* curr = job->head;
     while (curr->next) {
         job_node* prev = curr;
         curr = curr->next;
-        task_free(prev->task);
+        task_destroy(prev->task);
         free(prev);
     }
     free(job);
@@ -83,14 +83,14 @@ json_value* job_encode(Job *job) {
 
 /* job_decode: Decodes the JSON object into a new job. */
 Job* job_decode(const json_value* obj) {
-    json_value* val = json_get_object_value(obj, "id");
+    json_value* val = json_object_get_value(obj, "id");
     if (val == NULL) return NULL;
     Job* job = job_create(val->u.integer);
 
     // Add tasks
-    val = json_get_object_value(obj, "tasks");
+    val = json_object_get_value(obj, "tasks");
     if (val == NULL) {
-        job_free(job);
+        job_destroy(job);
         return NULL;
     }
 

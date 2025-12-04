@@ -4,9 +4,8 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "task.h"
-#include "json.h"
-#include "unittest.h"
+#include "test_task.h"
+#include "json-helpers.h"
 
 enum {
     MISSING_NAME = 0,
@@ -17,7 +16,7 @@ enum {
     BUG_NAME
 };
 
-char* const TEST_NAME[] = {
+const char* const TEST_NAME[] = {
     [MISSING_NAME]      = NULL,
     [INVALID_TYPE]      = NULL,
     [SHORT_NAME]        = "task.py",
@@ -26,7 +25,7 @@ char* const TEST_NAME[] = {
     [BUG_NAME]          = "bug.py"
 };
 
-char* const TEST_JSON[] = {
+const char* const TEST_JSON[] = {
     [MISSING_NAME]      = "{}",
     [INVALID_TYPE]      = "[\"task.py\"]",
     [SHORT_NAME]        = "{\"name\":\"task.py\"}",
@@ -34,7 +33,7 @@ char* const TEST_JSON[] = {
     [NO_NAME]           = "{\"name\":\"\"}"
 };
 
-int test_task_run(Task* task, const char* python, int *rv) {
+static result_t test_task_run(Task* task, const char* python, int *rv) {
     // Parent child redirection pipe
     int parent_child_pipe[2];
     if (pipe(parent_child_pipe) == -1) {
@@ -102,16 +101,15 @@ int test_task_run(Task* task, const char* python, int *rv) {
 }
 
 // Test Cases
-unittest_result test_case_create(unittest_compare cmp, const void* expected) {
+static result_t test_case_create(unittest_case* expected) {
     Task* actual = task_create("task.py");
-    int result = cmp(actual, expected);
+    int result = unittest_compare_task(actual, expected->as.task);
     task_destroy(actual);
-
     if (result == 0) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
 }
 
-unittest_result test_case_run(unittest_compare cmp, const void* expected) {
+static result_t test_case_run(unittest_case* expected) {
     char* python = getenv("PYONEER_PYTHON");
     if (python == NULL) {
         fprintf(stderr, "test_case_run: Missing environment variable PYONEER_PYTHON\n");
@@ -133,11 +131,11 @@ unittest_result test_case_run(unittest_compare cmp, const void* expected) {
         return UNITTEST_ERROR;
     }
 
-    if (cmp(&actual, expected) == 0) return UNITTEST_SUCCESS;
+    if (actual == expected->as.integer) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
 }
 
-unittest_result test_case_bug(unittest_compare cmp, const void* expected) {
+static result_t test_case_bug(unittest_case* expected) {
     char* python = getenv("PYONEER_PYTHON");
     if (python == NULL) {
         fprintf(stderr, "test_case_bug: Missing envirnoment variable PYONEER_PYTHON\n");
@@ -158,7 +156,7 @@ unittest_result test_case_bug(unittest_compare cmp, const void* expected) {
         return UNITTEST_ERROR;
     }
 
-    if (cmp(&actual, expected) == 0) return UNITTEST_SUCCESS;
+    if (actual == expected->as.integer) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
 }
 
@@ -166,51 +164,12 @@ static json_value* parse_case(int arg) {
     return json_parse(TEST_JSON[arg], strlen(TEST_JSON[arg]));
 }
 
-unittest_result test_case_missing(unittest_compare cmp, const void* expected) {
-    json_value* obj = parse_case(MISSING_NAME);
-    if (obj == NULL) return UNITTEST_ERROR;
-    Task* actual = task_decode(obj);
-    json_value_free(obj);
-
-    if (cmp(actual, expected) == 0) return UNITTEST_SUCCESS;
-    return UNITTEST_FAILURE;
-}
-
-unittest_result test_case_invalid(unittest_compare cmp, const void* expected) {
-    json_value* obj = parse_case(INVALID_TYPE);
-    if (obj == NULL) return UNITTEST_ERROR;
-    Task* actual = task_decode(obj);
-    json_value_free(obj);
-
-    if (cmp(actual, expected) == 0) return UNITTEST_SUCCESS;
-    return UNITTEST_FAILURE;
-}
-
-unittest_result test_case_short(unittest_compare cmp, const void* expected) {
-    json_value* obj = parse_case(SHORT_NAME);
-    if (obj == NULL) return UNITTEST_ERROR;
-    Task* actual = task_decode(obj);
-    json_value_free(obj);
-
-    if (cmp(actual, expected) == 0) return UNITTEST_SUCCESS;
-    return UNITTEST_FAILURE;
-}
-
-unittest_result test_case_long(unittest_compare cmp, const void* expected) {
-    json_value* obj = parse_case(LONG_NAME);
-    if (obj == NULL) return UNITTEST_ERROR;
-    Task* actual = task_decode(obj);
-    int result = cmp(actual, expected);
-    json_value_free(obj);
-    task_destroy(actual);
-    if (result == 0) return UNITTEST_SUCCESS;
-    return UNITTEST_FAILURE;
-}
-
-unittest_result test_case_encode(unittest_compare cmp, const void* expected) {
+static result_t test_case_encode(unittest_case* expected) {
     Task* task = task_create(TEST_NAME[SHORT_NAME]);
     json_value* actual = task_encode(task);
-    int result = cmp(actual, expected);
+    int result = json_value_compare(actual, expected->as.json);
+
+    // Clean up and return result
     task_destroy(task);
     json_value_free(actual);
     if (result == 0)
@@ -220,49 +179,80 @@ unittest_result test_case_encode(unittest_compare cmp, const void* expected) {
     return UNITTEST_ERROR;
 }
 
-int main() {
-    Unittest* ut = unittest_create("task");
-    if (ut == NULL) exit(EXIT_FAILURE);
+static result_t test_case_missing(unittest_case* expected) {
+    // Get test case object
+    json_value* obj = parse_case(MISSING_NAME);
+    if (obj == NULL) return UNITTEST_ERROR;
 
-    Task short_name;
-    short_name.status = TASK_READY;
-    short_name.name = TEST_NAME[SHORT_NAME];
+    // Decode and compare
+    Task* actual = task_decode(obj);
+    int result = unittest_compare_task(actual, expected->as.task);
+
+    // Clean up and return result
+    json_value_free(obj);
+    task_destroy(actual);
+    if (result == 0) return UNITTEST_SUCCESS;
+    return UNITTEST_FAILURE;
+}
+
+static result_t test_case_invalid(unittest_case* expected) {
+    // Get test case object
+    json_value* obj = parse_case(INVALID_TYPE);
+    if (obj == NULL) return UNITTEST_ERROR;
+
+    // Decode and compare
+    Task* actual = task_decode(obj);
+    int result = unittest_compare_task(actual, expected->as.task);
+
+    // Clean up and return result
+    json_value_free(obj);
+    task_destroy(actual);
+    if (result == 0) return UNITTEST_SUCCESS;
+    return UNITTEST_FAILURE;
+}
+
+Unittest* test_task_create(const char* name) {
+    Unittest* ut = unittest_create(name);
+    if (ut == NULL) return NULL;
+
+    int len = strlen(TEST_NAME[SHORT_NAME]);
+    Task* task = malloc(sizeof(Task) + (len + 1)*sizeof(char));
+    task->status = TASK_READY;
+    strcpy(task->name, TEST_NAME[SHORT_NAME]);
+    task->name[len] = '\0';
+
     unittest_add(
-        ut, "task_create short name", test_case_create, 
-        unittest_compare_task, &short_name
+        ut, "task_create - short name", test_case_create, 
+        CASE_TASK, task
     );
 
     int success = 0;
     unittest_add(
         ut, "task_run - task with no bugs", test_case_run,
-        unittest_compare_int, &success
+        CASE_INT, &success
     );
 
     int failed = 1;
     unittest_add(
         ut, "task_run - task with bug", test_case_bug,
-        unittest_compare_int, &failed
+        CASE_INT, &failed
     );
 
     json_value* short_json = parse_case(SHORT_NAME);
     unittest_add(
         ut, "task_encode - small name", test_case_encode,
-        unittest_compare_json_value, short_json
+        CASE_JSON, short_json
     );
 
     unittest_add(
         ut, "task_decode - missing name", test_case_missing,
-        unittest_compare_json_value, NULL
+        CASE_JSON, NULL
     );
 
     unittest_add(
         ut, "task_decode - invalid type", test_case_invalid,
-        unittest_compare_json_value, NULL
+        CASE_JSON, NULL
     );
 
-    unittest_run(ut);
-
-    json_value_free(short_json);
-    unittest_destroy(ut);
-    exit(EXIT_SUCCESS);
+    return ut;
 }

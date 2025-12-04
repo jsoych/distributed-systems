@@ -4,27 +4,13 @@
 #include <string.h>
 
 #include "unittest.h"
-#include "json-helpers.h"
-
-#define CHECK_NULL(a, b) do {               \
-    if (a == b) return 0;                   \
-    if (a == NULL && b != NULL) return 1;   \
-    if (a != NULL && b == NULL) return 1;   \
-} while (0)                                 \
 
 /* unittest_create: Creates a new unittest. */
 Unittest* unittest_create(const char* name) {
-    Unittest* ut = malloc(sizeof(Unittest));
+    int len = strlen(name);
+    Unittest* ut = malloc(sizeof(Unittest) + (len + 1)*sizeof(char));
     if (ut == NULL) {
         perror("unittest_create: malloc");
-        return NULL;
-    }
-
-    int len = strlen(name);
-    ut->name = malloc((len + 1)*sizeof(char));
-    if (ut->name == NULL) {
-        perror("unittest_create: malloc");
-        free(ut);
         return NULL;
     }
 
@@ -35,15 +21,13 @@ Unittest* unittest_create(const char* name) {
     ut->tests = malloc(ut->capacity*sizeof(unittest_test));
     if (ut->tests == NULL) {
         perror("unittest_create: malloc");
-        free(ut->name);
         free(ut);
         return NULL;
     }
 
-    ut->cases = malloc(ut->capacity*sizeof(unittest_case));
+    ut->cases = malloc(ut->capacity*sizeof(unittest_case*));
     if (ut->cases == NULL) {
         perror("unittest_create: malloc");
-        free(ut->name);
         free(ut->tests);
         free(ut);
         return NULL;
@@ -60,17 +44,36 @@ Unittest* unittest_create(const char* name) {
 /* unittest_destroy: Destroys the unittest and frees all its resources. */
 void unittest_destroy(Unittest* ut) {
     if (ut == NULL) return;
-    free(ut->name);
     free(ut->tests);
-    for (int i = 0; i < ut->size; i++) free(ut->cases[i]);
+    for (int i = 0; i < ut->size; i++) {
+        unittest_case* args = ut->cases[i];
+        switch (args->type) {
+            case CASE_INT:
+            case CASE_NUM:
+                break;
+            case CASE_STR:
+                free(args->as.string);
+                break;
+            case CASE_JSON:
+                json_value_free(args->as.json);
+                break;
+            case CASE_TASK:
+                task_destroy(args->as.task);
+                break;
+            case CASE_JOB:
+                job_destroy(args->as.job);
+                break;
+        }
+
+        free(args);
+    }
+
     free(ut);
 }
 
 /* unittest_add: Adds a new test case to the unittest. */
-int unittest_add(
-    Unittest* ut, const char* name, unittest_test tc, 
-    unittest_compare cmp, void* expected
-) {
+int unittest_add(Unittest* ut, const char* name, unittest_test tc, 
+    case_t type, void* as) {
     if (ut->size == ut->capacity) {
         int capacity = 2*ut->capacity;
         unittest_test* tests = malloc(capacity*sizeof(unittest_test));
@@ -102,15 +105,38 @@ int unittest_add(
         ut->capacity = capacity;
     }
 
-    unittest_case* args = malloc(sizeof(unittest_case));
+    int len = strlen(name);
+    unittest_case* args = malloc(sizeof(unittest_case) + (len + 1)*sizeof(char));
     if (args == NULL) {
         perror("unittest_add: malloc");
         return -1;
     }
 
-    args->expected = expected;
-    args->cmp = cmp;
-    args->name = name;
+    switch (args->type = type) {
+        case CASE_INT:
+            args->as.integer = *((int*)as);
+            break;
+        case CASE_NUM:
+            args->as.number = *((double*)as);
+            break;
+        case CASE_JSON:
+            args->as.json = (json_value*)as;
+            break;
+        case CASE_TASK:
+            args->as.task = (Task*)as;
+            break;
+        case CASE_JOB:
+            args->as.job = (Job*)as;
+            break;
+        default:
+            fprintf(stderr, "unittest_add: Error: Unas type (%d)\n", type);
+            free(args);
+            return -1;
+    }
+
+    strcpy(args->name, name);
+    args->name[len] = '\0';
+
     ut->tests[ut->size] = tc;
     ut->cases[ut->size++] = args;
     return 0;
@@ -126,7 +152,7 @@ int unittest_run(Unittest* ut) {
         printf("%s (%s) ...", ut->name, ut->cases[i]->name);
         fflush(stdout);
 
-        int result = ut->tests[i](ut->cases[i]->cmp, ut->cases[i]->expected);
+        int result = ut->tests[i](ut->cases[i]);
 
         switch (result) {
             case UNITTEST_SUCCESS:
@@ -166,49 +192,11 @@ int unittest_run(Unittest* ut) {
     }
 }
 
-/* unittest_compare_int: Compares the intergers. */
-int unittest_compare_int(const void* a, const void* b) {
-    CHECK_NULL(a, b);
-    const int* ia = (const int*)a;
-    const int* ib = (const int*)b;
-    if (*ia == *ib) return 0;
-    return 1;
-}
-
-/* unittest_compare_string: Compares the strings. */
-int unittest_compare_string(const void* a, const void* b) {
-    CHECK_NULL(a, b);
-    const char* sa = (const char*)a;
-    const char* sb = (const char*)b;
-    if (strcmp(sa, sb) == 0) return 0;
-    return 1;
-}
-
-
 /* compare_task: Compares tasks. */
-static int compare_task(const Task* a, const Task* b) {
-    CHECK_NULL(a, b);
+int unittest_compare_task(const Task* a, const Task* b) {
+    if (a == b) return 0;
+    if (a == NULL || b == NULL) return 1;
     if (a->status == b->status && strcmp(a->name, a->name) == 0)
         return 0;
     return 1;
 }
-
-/* unittest_compare_task: Compares the tasks. */
-int unittest_compare_task(const void* a, const void* b) {
-    CHECK_NULL(a, b);
-    const Task* ta = (const Task*)a;
-    const Task* tb = (const Task*)b;
-    if (compare_task(ta, tb) == 0) return 0;
-    return 1;
-}
-
-/* unittest_compare_json_value: Compares json values. */
-int unittest_compare_json_value(const void* a, const void* b) {
-    CHECK_NULL(a, b);
-    const json_value* ja = (const json_value*)a;
-    const json_value* jb = (const json_value*)b;
-    if (json_value_compare(ja, jb) == 0) return 0;
-    return 1;
-}
-
-#undef CHECK_NULL

@@ -9,26 +9,15 @@
 
 /* task_create: Creates a new task. */
 Task* task_create(const char* name) {
-    Task* task = malloc(sizeof(Task));
+    int len = strlen(name);
+    if (len == 0) return NULL;
+
+    Task* task = malloc(sizeof(Task) + (len + 1)*sizeof(char));
     if (task == NULL) {
         perror("task_create: malloc");
         return NULL;
     }
-
-    int len = strlen(name);
-    if (len == 0) {
-        fprintf(stderr, "task_create: Error: Missing name\n");
-        free(task);
-        return NULL;
-    }
     
-    task->name = malloc((len + 1)*sizeof(char));
-    if (task->name == NULL) {
-        perror("task_create: malloc");
-        free(task);
-        return NULL;
-    }
-
     task->status = TASK_READY;
     strcpy(task->name, name);
     task->name[len] = '\0';
