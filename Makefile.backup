@@ -1,0 +1,29 @@
+# Find all header files
+HEADERS := $(shell find $(INCLUDE_DIR) -name '*.h')
+
+OBJS := task.o json.o json-builder.o json-helpers.o
+
+
+print: $(SRCS) $(HEADERS)
+	@echo $^
+
+TEST_DIR := tests
+TEST_SRC := $(shell find $(TEST_DIR)/blueprints -name '*.c')
+
+TEST_OBJS := unittest.o 
+
+$(BUILD_DIR)/test_task: $(TEST_OBJS)
+	$(CC) $(CFLAGS) -o $@
+
+$(TEST_OBJS): $(TEST_SRC)
+
+
+# Debug build
+debug: CFLAGS += -g -O0 -DDEBUG
+debug: all
+
+# Clean
+.PHONY: all debug clean
+
+clean:
+	rm -rf $(BUILD_DIR)/*

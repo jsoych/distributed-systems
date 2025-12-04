@@ -1,0 +1,7 @@
+command: run
+blueprint:
+  job:
+    id: 42
+    tasks:
+    - load_data.py
+    - experiment.py

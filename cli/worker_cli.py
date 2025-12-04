@@ -14,10 +14,8 @@ class PyoneerShell(cmd.Cmd):
     def preloop(self):
         if (os.uname().sysname == 'Darwin'):
             self.workers_dir = '/Users/leejahsprock/pyoneer/run'
-            self.bin = '/Users/leejahsprock/pyoneer/bin'
         elif (os.uname().sysname == 'Linux'):
-            self.workers_dir = '/run/pyoneer'
-            self.bin = '/usr/pyoneer/bin'
+            self.workers_dir = '/home/jsoychak/pyoneer/run'
         self.sock = None
 
     def postloop(self):
@@ -29,7 +27,7 @@ class PyoneerShell(cmd.Cmd):
             return line
 
         tokens = line.split()
-        if (tokens[0] in ['get_status','get_job_status','run_job','start','stop']):
+        if (tokens[0] in ['get_status','get_job_status','run','start','stop']):
             # Connect to worker
             self.sock = socket.socket(socket.AF_UNIX)
             try:
@@ -82,9 +80,9 @@ class PyoneerShell(cmd.Cmd):
         if (obj.get('debug')):
             logger.debug(obj['debug'])
 
-    def do_run_job(self, line:str):
+    def do_run(self, line:str):
         ''' Runs the job on the worker. '''
-        obj = {'command': 'run_job'}
+        obj = {'command': 'run'}
         tokens = line.split()
         obj['job'] = {
             'id': tokens[1],
