@@ -16,12 +16,15 @@ typedef struct _task {
     char* name;
 } Task;
 
+// Construtor and destructor
 Task* task_create(const char* name);
 void task_destroy(Task* task);
 
+// Methods
 int task_run(Task* task, const char* python);
 json_value* task_encode(const Task* task);
 
+// Helpers
 Task* task_decode(const json_value* obj);
 
 #endif

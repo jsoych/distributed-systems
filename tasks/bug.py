@@ -15,7 +15,7 @@ os.dup(fd)
 
 os.close(fd)
 
-time.sleep(10)
+time.sleep(1)
 
 # Divide by zero error
 1/0

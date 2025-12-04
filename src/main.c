@@ -70,7 +70,7 @@ int main(int argc, char *argv[]) {
 
     // Stop server
     if (api_stop(server) == -1) {
-        fprintf(stderr, "main: Error: Unable to start server\n");
+        fprintf(stderr, "main: Error: Unable to stop server\n");
         api_destroy(server);
         pyoneer_destroy(pyoneer);
         logger_destroy(logger);

@@ -115,16 +115,7 @@ static void* api_client_thread(void* arg) {
                 goto send;
             }
 
-            int kind = pyoneer->get_blueprint_kind(pyoneer);
-            if (kind == -1) {
-                sig_flag = 1;   /* send resp and exit */
-                logger_info(logger, API_ERROR_MSG[API_ERR_INTERNAL]);
-                logger_debug(logger, API_ERROR_MSG[API_ERR_SHUTTING_DOWN]);
-                json_object_push_string(resp, "Error", API_ERROR_MSG[API_ERR_INTERNAL]);
-                goto send;
-            }
-
-            Blueprint* blueprint = blueprint_decode(val, kind);
+            Blueprint* blueprint = pyoneer_blueprint_decode(pyoneer, val);
             if (blueprint == NULL) {
                 logger_info(logger, API_ERROR_MSG[API_ERR_BLUEPRINT]);
                 logger_debug(logger, buf);
@@ -163,16 +154,7 @@ static void* api_client_thread(void* arg) {
                 goto send;
             }
 
-            int kind = pyoneer->get_blueprint_kind(pyoneer);
-            if (kind == -1) {
-                sig_flag = -1; // Exit loop
-                logger_info(logger, API_ERROR_MSG[API_ERR_INTERNAL]);
-                logger_debug(logger, API_ERROR_MSG[API_ERR_SHUTTING_DOWN]);
-                json_object_push_string(resp, "Error", API_ERROR_MSG[API_ERR_INTERNAL]);
-                goto send;
-            }
-
-            Blueprint* blueprint = blueprint_decode(val, kind);
+            Blueprint* blueprint = pyoneer_blueprint_decode(pyoneer, val);
             if (blueprint == NULL) {
                 logger_info(logger, API_ERROR_MSG[API_ERR_BLUEPRINT]);
                 logger_debug(logger, buf);

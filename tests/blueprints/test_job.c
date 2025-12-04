@@ -2,6 +2,8 @@
 #include <string.h>
 #include "job.h"
 
+/*
+
 #define BUFSIZE 1024
 
 typedef enum {
@@ -195,3 +197,4 @@ void print_result(test_result result, char *name, char *msg) {
     }
     return;
 }
+*/

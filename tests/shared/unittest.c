@@ -2,7 +2,15 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+
 #include "unittest.h"
+#include "json-helpers.h"
+
+#define CHECK_NULL(a, b) do {               \
+    if (a == b) return 0;                   \
+    if (a == NULL && b != NULL) return 1;   \
+    if (a != NULL && b == NULL) return 1;   \
+} while (0)                                 \
 
 /* unittest_create: Creates a new unittest. */
 Unittest* unittest_create(const char* name) {
@@ -32,7 +40,7 @@ Unittest* unittest_create(const char* name) {
         return NULL;
     }
 
-    ut->cases = malloc(ut->capacity*sizeof(unittest_args));
+    ut->cases = malloc(ut->capacity*sizeof(unittest_case));
     if (ut->cases == NULL) {
         perror("unittest_create: malloc");
         free(ut->name);
@@ -71,7 +79,7 @@ int unittest_add(
             return -1;
         }
 
-        unittest_args** cases = malloc(capacity*sizeof(unittest_args*));
+        unittest_case** cases = malloc(capacity*sizeof(unittest_case*));
         if (cases == NULL) {
             perror("unittest_add: malloc");
             free(tests);
@@ -82,7 +90,7 @@ int unittest_add(
         free(ut->tests);
         ut->tests = tests;
 
-        memcpy(cases, ut->cases, ut->size*sizeof(unittest_args*));
+        memcpy(cases, ut->cases, ut->size*sizeof(unittest_case*));
         free(ut->cases);
         ut->cases = cases;
 
@@ -94,7 +102,7 @@ int unittest_add(
         ut->capacity = capacity;
     }
 
-    unittest_args* args = malloc(sizeof(unittest_args));
+    unittest_case* args = malloc(sizeof(unittest_case));
     if (args == NULL) {
         perror("unittest_add: malloc");
         return -1;
@@ -132,6 +140,7 @@ int unittest_run(Unittest* ut) {
             case UNITTEST_ERROR:
                 printf("ERROR\n");
                 n_error++;
+                break;
             default:
                 printf("UNKNOWN\n");
                 n_unknown++;
@@ -156,3 +165,50 @@ int unittest_run(Unittest* ut) {
         return 0;
     }
 }
+
+/* unittest_compare_int: Compares the intergers. */
+int unittest_compare_int(const void* a, const void* b) {
+    CHECK_NULL(a, b);
+    const int* ia = (const int*)a;
+    const int* ib = (const int*)b;
+    if (*ia == *ib) return 0;
+    return 1;
+}
+
+/* unittest_compare_string: Compares the strings. */
+int unittest_compare_string(const void* a, const void* b) {
+    CHECK_NULL(a, b);
+    const char* sa = (const char*)a;
+    const char* sb = (const char*)b;
+    if (strcmp(sa, sb) == 0) return 0;
+    return 1;
+}
+
+
+/* compare_task: Compares tasks. */
+static int compare_task(const Task* a, const Task* b) {
+    CHECK_NULL(a, b);
+    if (a->status == b->status && strcmp(a->name, a->name) == 0)
+        return 0;
+    return 1;
+}
+
+/* unittest_compare_task: Compares the tasks. */
+int unittest_compare_task(const void* a, const void* b) {
+    CHECK_NULL(a, b);
+    const Task* ta = (const Task*)a;
+    const Task* tb = (const Task*)b;
+    if (compare_task(ta, tb) == 0) return 0;
+    return 1;
+}
+
+/* unittest_compare_json_value: Compares json values. */
+int unittest_compare_json_value(const void* a, const void* b) {
+    CHECK_NULL(a, b);
+    const json_value* ja = (const json_value*)a;
+    const json_value* jb = (const json_value*)b;
+    if (json_value_compare(ja, jb) == 0) return 0;
+    return 1;
+}
+
+#undef CHECK_NULL

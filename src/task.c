@@ -44,15 +44,23 @@ void task_destroy(Task *task) {
     python interpreter. */
 int task_run(Task* task, const char* python) {
     char* task_dir = getenv("PYONEER_TASK_DIR");
+    if (task_dir == NULL) {
+        fprintf(stderr, "task_run: Error: Missing environment variable PYONEER_TASK_DIR\n");
+        return -1;
+    }
+
+    // Join task_dir and task name
     int len = strlen(task_dir) + strlen(task->name) + 2;
     char task_path[len];
-    char* end = strcpy(task_path, task_dir);
-    end = strcpy(end, "/");
-    strcpy(end, task->name);
-    if (execl(python, task_path, NULL) == -1) {
+    char* end = stpcpy(task_path, task_dir);
+    end = stpcpy(end, "/");
+    stpcpy(end, task->name);
+    
+    if (execl(python, python, task_path, NULL) == -1) {
         perror("task_run: execl");
         return -1;
     }
+
     return 0;
 }
 
@@ -64,9 +72,10 @@ json_value* task_encode(const Task* task) {
 }
 
 Task* task_decode(const json_value* obj) {
+    if (obj == NULL) return NULL;
     if (obj->type != json_object) return NULL;
-    json_value* name = json_get_value(obj, "name");
+    json_value* name = json_object_get_value(obj, "name");
     if (name == NULL) return NULL;
-    if (name->type == json_string) return NULL;
+    if (name->type != json_string) return NULL;
     return task_create(name->u.string.ptr);
 }

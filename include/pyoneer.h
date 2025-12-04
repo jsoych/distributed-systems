@@ -24,7 +24,6 @@ typedef struct _pyoneer {
         Manager* manager;
     } as;
     command get_status;
-    command get_blueprint_kind;
     command get_blueprint_status;
     command_blueprint run;
     command_blueprint assign;
@@ -38,5 +37,6 @@ void pyoneer_destroy(Pyoneer* pyoneer);
 
 json_value* pyoneer_status_encode(Pyoneer* pyoneer);
 int pyoneer_status_decode(Pyoneer* pyoneer, json_value* obj);
+Blueprint* pyoneer_blueprint_decode(Pyoneer* pyoneer, const json_value* val);
 
 #endif

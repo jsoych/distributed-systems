@@ -4,7 +4,7 @@
 #include "json.h"
 #include "task.h"
 
-typedef enum {
+enum {
     JOB_NOT_READY,
     JOB_READY,
     JOB_RUNNING,

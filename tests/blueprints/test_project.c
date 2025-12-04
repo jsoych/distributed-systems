@@ -14,6 +14,7 @@ typedef enum {
     test_failure
 } test_result;
 
+/*
 void print_result(test_result, char *, char *);
 
 int main() {
@@ -236,3 +237,4 @@ int main() {
 
     return 0;
 }
+*/

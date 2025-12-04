@@ -31,18 +31,6 @@ static int pyoneer_worker_stop(Pyoneer* pyoneer) {
 
 /* pyoneer manager wrappers */
 
-/* pyoneer_get_blueprint_kind: Gets the kind of blueprint and returns it. 
-    Otherwise, returns -1. */
-static int pyoneer_get_blueprint_kind(Pyoneer* pyoneer) {
-    switch (pyoneer->role) {
-        case PYONEER_WORKER:
-            return BLUEPRINT_JOB;
-        case PYONEER_MANAGER:
-            return BLUEPRINT_PROJECT;
-    }
-    return -1;
-}
-
 /* pyoneer_create: Creates a new pyoneer. */
 Pyoneer* pyoneer_create(int id, int role) {
     Pyoneer *pyoneer = malloc(sizeof(Pyoneer));
@@ -56,7 +44,6 @@ Pyoneer* pyoneer_create(int id, int role) {
             pyoneer->as.worker = worker_create(id);
             pyoneer->run = pyoneer_run_job;
             pyoneer->get_status = pyoneer_get_worker_status;
-            pyoneer->get_blueprint_kind = pyoneer_get_blueprint_kind;
             pyoneer->get_blueprint_status = pyoneer_get_job_status;
             pyoneer->assign = pyoneer_assign_job;
             pyoneer->unassign = pyoneer_unassign_job;
@@ -66,7 +53,6 @@ Pyoneer* pyoneer_create(int id, int role) {
         case PYONEER_MANAGER:
             pyoneer->role = PYONEER_MANAGER;
             pyoneer->as.manager = manager_create(id);
-            pyoneer->get_blueprint_kind = pyoneer_get_blueprint_kind;
             // Add manager methods
             break;
     }
@@ -106,4 +92,15 @@ int pyoneer_status_decode(Pyoneer* pyoneer, json_value* obj) {
             return manager_status_decode(obj);
     }
     return -1;
+}
+
+Blueprint* pyoneer_blueprint_decode(Pyoneer* pyoneer, const json_value* val) {
+    if (val->type != json_object) return NULL;
+    switch (pyoneer->role) {
+        case PYONEER_WORKER:
+            return blueprint_decode(val, BLUEPRINT_JOB);
+        case PYONEER_MANAGER:
+            return blueprint_decode(val, BLUEPRINT_PROJECT);
+    }
+    return NULL;
 }
