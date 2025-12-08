@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <signal.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -17,8 +18,10 @@ Task* task_create(const char* name) {
         perror("task_create: malloc");
         return NULL;
     }
-    
+
     task->status = TASK_READY;
+    task->pid = -1;
+    task->exit_code = -1;
     strcpy(task->name, name);
     task->name[len] = '\0';
     return task;
@@ -26,13 +29,15 @@ Task* task_create(const char* name) {
 
 /* task_destroy: Frees the memory allocated to the task. */
 void task_destroy(Task *task) {
+    if (task == NULL) return;
+    if (task->status == TASK_RUNNING) task_stop(task);
     free(task);
 }
 
-/* task_run: Executes the task by overlaying the running process with the
-    python interpreter. */
+/* task_run: Runs the task as a separated process and dedirects the task
+    outputs to stdout and return its exit code. Otherwise, returns -1. */
 int task_run(Task* task, const char* python) {
-    char* task_dir = getenv("PYONEER_TASK_DIR");
+    const char* task_dir = getenv("PYONEER_TASK_DIR");
     if (task_dir == NULL) {
         fprintf(stderr, "task_run: Error: Missing environment variable PYONEER_TASK_DIR\n");
         return -1;
@@ -44,13 +49,83 @@ int task_run(Task* task, const char* python) {
     char* end = stpcpy(task_path, task_dir);
     end = stpcpy(end, "/");
     stpcpy(end, task->name);
-    
-    if (execl(python, python, task_path, NULL) == -1) {
-        perror("task_run: execl");
+
+    task->status = TASK_RUNNING;
+    task->pid = fork();
+    if (task->pid == -1) {
+        perror("task_run: fork");
+        task->status = TASK_READY;
+        task->pid = -1;
         return -1;
     }
 
-    return 0;
+    if (task->pid == 0) {
+        // Child process
+
+        // task_run overlays the child process with a running python script
+        if (execl(python, python, task_path, NULL) == -1) {
+            perror("task_run: execl");
+            _exit(TASK_EXIT_EXEC_FAILURE);
+        }
+
+        // Running python script
+    }
+
+    int status;
+    if (wait(&status) == -1) {
+        perror("task_run: wait");
+        task->status = TASK_READY;
+        task->pid = -1;
+        return -1;
+    }
+    
+    if (WIFEXITED(status)) {
+        int code =  WEXITSTATUS(status);
+        if (code == TASK_EXIT_EXEC_FAILURE) {
+            fprintf(stderr, "task_run: Error: Child process exited with code (%d)\n", code);
+            task->status = TASK_READY;
+            task->pid = -1;
+            task->exit_code = TASK_EXIT_EXEC_FAILURE;
+            return -1;
+        }
+        
+        // Update task status
+        task->status = (code == 0) ? TASK_COMPLETED : TASK_NOT_READY;
+        task->pid = -1;
+        task->exit_code = code;
+        return 0;
+    } else if (WIFSIGNALED(status)) {
+        // Task exited from a signal
+        task->status = TASK_INCOMPLETE;
+        task->pid = -1;
+        task->exit_code = -1;
+        return 0;
+    }
+
+    fprintf(stderr, "task_run: Error: Child process did not exit as expected\n");
+    task->status = TASK_INCOMPLETE;
+    task->pid = -1;
+    task->exit_code = -1;
+    return -1;
+}
+
+void task_stop(Task* task) {
+    if (task != TASK_RUNNING) return;
+    pid_t task_pid = task->pid;
+    if (task_pid == -1) return;
+
+    // Kill process
+    if (kill(task_pid, SIGKILL) == -1) {
+        perror("task_stop: kill");
+        return;
+    }
+
+    // Reap zombie process
+    if (waitpid(task_pid, NULL, 0) == -1) {
+        perror("task_stop: waitpid");
+        return;
+    }
+    return;
 }
 
 json_value* task_encode(const Task* task) {

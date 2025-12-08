@@ -4,7 +4,7 @@
 #include "blueprint.h"
 #include "json.h"
 
-#define UNITTEST_CAPACITY 8
+#define BUFSIZE 256
 
 typedef enum {
     UNITTEST_SUCCESS,
@@ -13,6 +13,7 @@ typedef enum {
 } result_t;
 
 typedef enum {
+    CASE_NONE,
     CASE_INT,
     CASE_NUM,
     CASE_STR,
@@ -52,5 +53,6 @@ int unittest_add(Unittest* ut, const char* name, unittest_test tc,
 int unittest_run(Unittest* ut);
 
 int unittest_compare_task(const Task* a, const Task* b);
+int unittest_compare_job(const Job* a, const Job* b);
 
 #endif

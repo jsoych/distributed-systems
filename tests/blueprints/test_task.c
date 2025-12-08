@@ -4,7 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "test_task.h"
+#include "test_blueprints.h"
 #include "json-helpers.h"
 
 enum {
@@ -33,73 +33,6 @@ const char* const TEST_JSON[] = {
     [NO_NAME]           = "{\"name\":\"\"}"
 };
 
-static result_t test_task_run(Task* task, const char* python, int *rv) {
-    // Parent child redirection pipe
-    int parent_child_pipe[2];
-    if (pipe(parent_child_pipe) == -1) {
-        perror("test_task_run: pipe");
-        return -1;
-    }
-
-    pid_t id = fork();
-    if (id == -1) {
-        perror("test_task_run: fork");
-        close(parent_child_pipe[0]);
-        close(parent_child_pipe[1]);
-        return -1;
-    }
-
-    if (id == 0) {
-        // Child process
-
-        // Redirect stdout and stderr
-        close(parent_child_pipe[0]);
-        if (dup2(parent_child_pipe[1], STDOUT_FILENO) == -1) _exit(253);
-        if (dup2(parent_child_pipe[1], STDERR_FILENO) == -1) _exit(254);
-        close(parent_child_pipe[1]);
-
-        // task_run overlays the child process with a running python script
-        if (task_run(task, python) == -1) _exit(255);
-
-        // python script
-    }
-
-    // Parent process
-    close(parent_child_pipe[1]);
-
-    int status;
-    if (wait(&status) == -1) {
-        perror("test_task_run: wait");
-        return -1;
-    }
-
-    char buf[256];
-    int n = read(parent_child_pipe[0], buf, sizeof(buf) - 1);
-    if (n == -1) {
-        perror("test_task_run: read");
-        close(parent_child_pipe[0]);
-        return -1;
-    }
-
-    buf[n] = '\0';
-    printf("%s", buf);
-    close(parent_child_pipe[0]);
-    
-
-    if (WIFEXITED(status)) {
-        int code =  WEXITSTATUS(status);
-        if (code >= 243 && code <= 255) {
-            fprintf(stderr, "test_task_run: Error: Child process exited with code (%d)\n", code);
-            return -1;
-        }
-        *rv = code;
-        return 0;
-    }
-
-    fprintf(stderr, "test_task_run: Error: Child process did not exit as expected\n");
-    return -1;
-}
-
 // Test Cases
 static result_t test_case_create(unittest_case* expected) {
     Task* actual = task_create("task.py");
@@ -107,6 +40,16 @@ static result_t test_case_create(unittest_case* expected) {
     task_destroy(actual);
     if (result == 0) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
+}
+
+static result_t test_case_destroy(unittest_case* expected) {
+    // Check NULL
+    task_destroy(NULL);
+
+    Task* task = task_create("task.py");
+    if (task == NULL) return UNITTEST_ERROR;
+    task_destroy(task);
+    return UNITTEST_SUCCESS;
 }
 
 static result_t test_case_run(unittest_case* expected) {
@@ -122,15 +65,14 @@ static result_t test_case_run(unittest_case* expected) {
         return UNITTEST_ERROR;
     }
 
-    int actual;
-    int err = test_task_run(task, python, &actual);
-    task_destroy(task);
-
-    if (err == -1) {
+    int actual = task_run(task, python);
+    if (actual == -1) {
         fprintf(stderr, "test_case_run: Unable to run task\n");
+        task_destroy(task);
         return UNITTEST_ERROR;
     }
 
+    task_destroy(task);
     if (actual == expected->as.integer) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
 }
@@ -148,14 +90,14 @@ static result_t test_case_bug(unittest_case* expected) {
         return UNITTEST_ERROR;
     }
 
-    int actual;
-    int err = test_task_run(task, python, &actual);
-
-    if (err == -1) {
+    int actual = task_run(task, python);
+    if (actual == -1) {
         fprintf(stderr, "test_case_bug: Unable to run task\n");
+        task_destroy(task);
         return UNITTEST_ERROR;
     }
 
+    task_destroy(task);
     if (actual == expected->as.integer) return UNITTEST_SUCCESS;
     return UNITTEST_FAILURE;
 }
@@ -225,6 +167,8 @@ Unittest* test_task_create(const char* name) {
         ut, "task_create - short name", test_case_create, 
         CASE_TASK, task
     );
+
+    unittest_add(ut, "task_destroy", test_case_destroy, CASE_NONE, NULL);
 
     int success = 0;
     unittest_add(

@@ -25,6 +25,15 @@ int json_object_push_string(json_value* obj, const char* key, const char* str) {
     return 0;
 }
 
+/* json_object_push_integer: Creates and pushes a new integer to the obj. */
+int json_object_push_integer(json_value* obj, const char* key, int integer) {
+    json_value* val = json_integer_new(integer);
+    if (val == NULL) return -1;
+    val = json_object_push(obj, key, val);
+    if (val == NULL) return -1;
+    return 0;
+}
+
 /* json_value_compare: Compares the values and returns 0 if they are equalivent
     and 1 if they are not equalivent. */
 int json_value_compare(const json_value* value1, const json_value* value2) {
@@ -81,7 +90,7 @@ int json_value_compare(const json_value* value1, const json_value* value2) {
         }
         for (unsigned int i = 0; i < value1->u.object.length; i++) {
             json_value* val = json_object_get_value(
-                value2, value1->u.object.values->name
+                value2, value1->u.object.values[i].name
             );
             if (val == NULL) return 1;
             int result = json_value_compare(value1->u.object.values[i].value, val);

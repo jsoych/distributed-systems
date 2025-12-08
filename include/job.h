@@ -31,12 +31,10 @@ void job_destroy(Job* job);
 // Methods
 int job_get_status(Job* job);
 int job_add_task(Job* job, Task* task);
-json_value* job_encode(Job *job);
 
 // Helpers
+json_value* job_encode_status(Job* job);
 json_value* job_encode(Job* job);
-Job* job_decode(const json_value *obj);
-json_value* job_status_encode(int status);
-int job_status_decode(json_value* obj);
+Job* job_decode(const json_value* obj);
 
 #endif

@@ -2,8 +2,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "unittest.h"
+
+#define CAPACITY 8
 
 /* unittest_create: Creates a new unittest. */
 Unittest* unittest_create(const char* name) {
@@ -17,7 +20,7 @@ Unittest* unittest_create(const char* name) {
     strcpy(ut->name, name);
     ut->name[len] = '\0';
     ut->size = 0;
-    ut->capacity = UNITTEST_CAPACITY;
+    ut->capacity = CAPACITY;
     ut->tests = malloc(ut->capacity*sizeof(unittest_test));
     if (ut->tests == NULL) {
         perror("unittest_create: malloc");
@@ -48,6 +51,7 @@ void unittest_destroy(Unittest* ut) {
     for (int i = 0; i < ut->size; i++) {
         unittest_case* args = ut->cases[i];
         switch (args->type) {
+            case CASE_NONE:
             case CASE_INT:
             case CASE_NUM:
                 break;
@@ -73,7 +77,7 @@ void unittest_destroy(Unittest* ut) {
 
 /* unittest_add: Adds a new test case to the unittest. */
 int unittest_add(Unittest* ut, const char* name, unittest_test tc, 
-    case_t type, void* as) {
+    case_t type, void* expected) {
     if (ut->size == ut->capacity) {
         int capacity = 2*ut->capacity;
         unittest_test* tests = malloc(capacity*sizeof(unittest_test));
@@ -112,28 +116,32 @@ int unittest_add(Unittest* ut, const char* name, unittest_test tc,
         return -1;
     }
 
-    switch (args->type = type) {
+    args->type = type;
+
+    switch (type) {
+        case CASE_NONE:
+            break;
         case CASE_INT:
-            args->as.integer = *((int*)as);
+            args->as.integer = *((int*)expected);
             break;
         case CASE_NUM:
-            args->as.number = *((double*)as);
+            args->as.number = *((double*)expected);
             break;
         case CASE_JSON:
-            args->as.json = (json_value*)as;
+            args->as.json = (json_value*)expected;
             break;
         case CASE_TASK:
-            args->as.task = (Task*)as;
+            args->as.task = (Task*)expected;
             break;
         case CASE_JOB:
-            args->as.job = (Job*)as;
+            args->as.job = (Job*)expected;
             break;
         default:
-            fprintf(stderr, "unittest_add: Error: Unas type (%d)\n", type);
+            fprintf(stderr, "unittest_add: Error: Unknown type (%d)\n", type);
             free(args);
             return -1;
     }
-
+    
     strcpy(args->name, name);
     args->name[len] = '\0';
 
@@ -142,54 +150,217 @@ int unittest_add(Unittest* ut, const char* name, unittest_test tc,
     return 0;
 }
 
+// Ring buffer
+struct ring_buffer {
+    int start;
+    int size;
+    char buf[BUFSIZE];
+};
+
+// ring_buf_init: Initializes ring buffer.
+void ring_buf_init(struct ring_buffer* rb) {
+    rb->start = 0;
+    rb->size = 0;
+    memset(rb->buf, 0, BUFSIZE);
+}
+
+// ring_buf_write: Writes to ring buffer.
+void ring_buf_write(struct ring_buffer* rb, const char* data, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        size_t end = (rb->start + rb->size) % BUFSIZE;
+        rb->buf[end] = data[i];
+
+        if (rb->size < BUFSIZE) {
+            rb->size++;
+        } else {
+            // Buffer full, overwrite oldest
+            rb->start = (rb->start + 1) % BUFSIZE;
+        }
+    }
+}
+
+// ring_buf_read: Reads from ring buffer.
+void ring_buf_read(struct ring_buffer* rb, char* out) {
+    for (int i = 0; i < rb->size; i++) {
+        out[i] = rb->buf[(rb->start + i) % BUFSIZE];
+    }
+    out[rb->size] = '\0';
+}
+
+// Errors list
+struct node {
+    const char* name;
+    int result;
+    char buf[BUFSIZE];
+    struct node* next;
+};
+
+struct list {
+    int len;
+    struct node* head;
+    struct node* tail;
+};
+
+// list_init: Initializes the list.
+void list_init(struct list* lst) {
+    lst->len = 0;
+    lst->head = NULL;
+    lst->tail = NULL;
+}
+
+// list_free: Frees the list.
+void list_free(struct list* lst) {
+    struct node* curr = lst->head;
+    while (curr) {
+        struct node* prev = curr;
+        curr = curr->next;
+        free(prev);
+    }
+    
+    lst->head = NULL;
+    lst->tail = NULL;
+    lst->len = 0;
+}
+
+// list_add: Adds a result and its buffer to the list.
+void list_add(struct list* lst, struct node* n) {
+    n->next = NULL;
+    if (lst->len++ == 0) {
+        lst->head = n;
+        lst->tail = n;
+        return;
+    }
+
+    lst->tail->next = n;
+    lst->tail = n;
+}
+
+// list_print: Prints the buffer of each node.
+void list_print(struct list* lst) {
+    printf("\n----------------------------------------------------------------------\n");
+    struct node* curr = lst->head;
+    while (curr) {
+        const char* result_type;
+        switch (curr->result) {
+            case UNITTEST_FAILURE:
+                result_type = "FAIL";
+                break;
+            case UNITTEST_ERROR:
+                result_type = "ERROR";
+                break;
+            default:
+                result_type = "UNKNOWN";
+                break;
+        }
+        
+        printf("%s) %s\n", curr->name, result_type);
+        printf("%s\n", curr->buf);
+        printf("\n----------------------------------------------------------------------\n");
+
+        curr = curr->next;
+    }
+}
+
 /* unittest_run: Runs all the test cases and stores its results. */
 int unittest_run(Unittest* ut) {
-    int n_success = 0;
-    int n_failure= 0;
-    int n_error = 0;
-    int n_unknown = 0;
-    for (int i = 0; i < ut->size; i++) {
-        printf("%s (%s) ...", ut->name, ut->cases[i]->name);
-        fflush(stdout);
+    printf("----- Running unit test %s -----\n\n", ut->name);
+    #define SUCCESS 0
+    #define FAILURE 1
+    #define ERROR 2
+    #define UNKNOWN 3
+    int summary[4] = {0};
 
+    struct list lst;
+    list_init(&lst);
+
+    char buf[BUFSIZE];
+    for (int i = 0; i < ut->size; i++) {
+        int test_pipe[2];
+        pipe(test_pipe);
+
+        int saved_out = dup(STDOUT_FILENO);
+        int saved_err = dup(STDERR_FILENO);
+
+        // Redirect stdout/stderr to pipe
+        dup2(test_pipe[1], STDOUT_FILENO);
+        dup2(test_pipe[1], STDERR_FILENO);
+        close(test_pipe[1]);
+
+        dprintf(saved_out, "(%s) ...", ut->cases[i]->name);
+
+        // Run test case
         int result = ut->tests[i](ut->cases[i]);
 
         switch (result) {
             case UNITTEST_SUCCESS:
-                printf("ok\n");
-                n_success++;
+                dprintf(saved_out, "ok\n");
+                summary[SUCCESS]++;
                 break;
             case UNITTEST_FAILURE:
-                printf("FAIL\n");
-                n_failure++;
+                dprintf(saved_out, "FAIL\n");
+                summary[FAILURE]++;
                 break;
             case UNITTEST_ERROR:
-                printf("ERROR\n");
-                n_error++;
+                dprintf(saved_out, "ERROR\n");
+                summary[ERROR]++;
                 break;
             default:
-                printf("UNKNOWN\n");
-                n_unknown++;
+                dprintf(saved_out, "UNKNOWN\n");
+                summary[UNKNOWN]++;
         }
+
+        fflush(stdout);
+        fflush(stderr);
+
+        // Restore stdout/stderr
+        dup2(saved_out, STDOUT_FILENO);
+        dup2(saved_err, STDERR_FILENO);
+        close(saved_out);
+        close(saved_err);
+
+
+        struct ring_buffer rb;
+        ring_buf_init(&rb);
+
+        // Read all bufferred out to the ring buffer
+        int n = read(test_pipe[0], buf, BUFSIZE);
+        while (n > 0) {
+            ring_buf_write(&rb, buf, n);
+            n = read(test_pipe[0], buf, BUFSIZE);
+        }
+
+        if (result != UNITTEST_SUCCESS && rb.size > 0) {
+            struct node* n = malloc(sizeof(struct node));
+            n->name = ut->cases[i]->name;
+            n->result = result;
+            ring_buf_read(&rb, n->buf);
+            list_add(&lst, n);
+        }
+
+        close(test_pipe[0]);
     }
 
     // Print summary
     printf("\n----------------------------------------------------------------------\n");
     printf("Ran %d tests\n\n", ut->size);
 
-    if (n_failure > 0 || n_error > 0 || n_unknown > 0) {
+    if (summary[FAILURE] > 0 || summary[ERROR] > 0 || summary[UNKNOWN] > 0) {
         printf("FAILED (");
-        if (n_failure) printf("failures=%d", n_failure);
-        if (n_failure && n_error) printf(", ");
-        if (n_error) printf("errors=%d", n_error);
-        if ((n_failure + n_error) && n_unknown) printf(", ");
-        if (n_unknown) printf("unknown=%d", n_unknown);
+        if (summary[FAILURE]) printf("failures=%d", summary[FAILURE]);
+        if (summary[FAILURE] && summary[ERROR]) printf(", ");
+        if (summary[ERROR]) printf("errors=%d", summary[ERROR]);
+        if ((summary[FAILURE] + summary[ERROR]) && summary[UNKNOWN]) printf(", ");
+        if (summary[UNKNOWN]) printf("unknown=%d", summary[UNKNOWN]);
         printf(")\n");
-        return -1;
+
+        list_print(&lst);
+        list_free(&lst);
     } else {
         printf("OK\n");
-        return 0;
+        list_free(&lst);
     }
+
+    return 0;
 }
 
 /* compare_task: Compares tasks. */
@@ -200,3 +371,24 @@ int unittest_compare_task(const Task* a, const Task* b) {
         return 0;
     return 1;
 }
+
+int unittest_compare_job(const Job* a, const Job* b) {
+    if (a == b) return 0;
+    if (a == NULL || b == NULL) return 1;
+    if (a->id != b->id || a->status != b->status ||
+        a->size != b->size) return 1;
+    
+    // Compare tasks
+    job_node* cura = a->head;
+    job_node* curb = b->head;
+    while (cura && curb) {
+        if (unittest_compare_task(cura->task, curb->task)) return 1;
+        cura = cura->next;
+        curb = curb->next;
+    }
+
+    if (cura != curb) return -1;
+    return 0;
+}
+
+#undef CAPACITY
