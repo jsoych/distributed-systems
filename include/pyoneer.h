@@ -13,9 +13,9 @@ enum {
     PYONEER_MANAGER
 };
 
-typedef int (*command)(Pyoneer*);
-typedef int (*command_blueprint)(Pyoneer*, Blueprint*);
-typedef int (*signal)(Pyoneer*);
+typedef json_value* (*command)(Pyoneer*);
+typedef json_value* (*command_blueprint)(Pyoneer*, Blueprint*);
+typedef void (*signal)(Pyoneer*);
 
 typedef struct _pyoneer {
     int role;
@@ -24,15 +24,13 @@ typedef struct _pyoneer {
         Manager* manager;
     } as;
     command get_status;
-    command get_blueprint_status;
     command_blueprint run;
     command_blueprint assign;
-    command_blueprint unassign;
     signal start;
     signal stop;
 } Pyoneer;
 
-Pyoneer* pyoneer_create(int id, int type);
+Pyoneer* pyoneer_create(int id, int type, Site* site);
 void pyoneer_destroy(Pyoneer* pyoneer);
 
 json_value* pyoneer_status_encode(Pyoneer* pyoneer);

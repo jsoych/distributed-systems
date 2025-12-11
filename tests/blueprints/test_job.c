@@ -5,9 +5,7 @@
 #include "json-builder.h"
 #include "json-helpers.h"
 
-#define VALID_ID 33
-#define INVALID_ID -13
-#define TASK_NAME "task.py"
+extern Site* SITE;
 
 const char* JOB_JSON = "{\"id\": 33, \"tasks\": [{\"name\": \"task.py\"}, {\"name\": \"task.py\"}, {\"name\": \"task.py\"}]}";
 const char* JOB_JSON_INVALID_TASK = "{\"id\": 42, \"tasks\": [{\"key\": \"value\"}]}";
@@ -108,6 +106,72 @@ static result_t test_case_get_status(unittest_case* expected) {
 
     job_destroy(job);
     return UNITTEST_SUCCESS;
+}
+
+static result_t test_case_run(unittest_case* expected) {
+    Job* job = job_create(VALID_ID);
+    JobRunner* runner = job_run(job, SITE);
+    if (runner) {
+        job_destroy(job);
+        job_runner_destroy(runner);
+        return UNITTEST_FAILURE;
+    }
+
+    // Add tasks to job
+    for (int i = 0; i < 3; i++) {
+        Task* task = task_create(TASK_NAME);
+        job_add_task(job, task);
+    }
+
+    runner = job_run(job, SITE);
+    if (!runner) {
+        job_destroy(job);
+        return UNITTEST_FAILURE;
+    }
+    job_runner_wait(runner);
+
+    // Clean up and return result
+    int actual = job_get_status(job);
+    job_destroy(job);
+    job_runner_destroy(runner);
+    if (actual == expected->as.integer) return UNITTEST_SUCCESS;
+    return UNITTEST_FAILURE;
+}
+
+static result_t test_case_bug(unittest_case* expected) {
+    Job* job = job_create(VALID_ID);
+    for (int i = 0; i < 4; i++) {
+        Task* task = task_create(TASK_NAME);
+        job_add_task(job, task);
+    }
+    Task* bug = task_create(BUG_NAME);
+    job_add_task(job, bug);
+
+    JobRunner* runner = job_run(job, SITE);
+    job_runner_wait(runner);
+
+    int actaul = job_get_status(job);
+    job_destroy(job);
+    job_runner_destroy(runner);
+    if (actaul == expected->as.integer) return UNITTEST_SUCCESS;
+    return UNITTEST_FAILURE;
+}
+
+static result_t test_case_stop(unittest_case* expected) {
+    Job* job = job_create(VALID_ID);
+    for (int i = 0; i < 3; i++) {
+        Task* task = task_create(TASK_NAME);
+        job_add_task(job, task);
+    }
+
+    JobRunner* runner = job_run(job, SITE);
+    job_runner_stop(runner);
+    int actual = job_get_status(job);
+    
+    job_destroy(job);
+    job_runner_destroy(runner);
+    if (actual == expected->as.integer) return UNITTEST_SUCCESS;
+    return UNITTEST_FAILURE;
 }
 
 static result_t test_case_add(unittest_case* expected) {
@@ -215,34 +279,37 @@ static result_t test_case_invalid_task(unittest_case* expected) {
 Unittest* test_job_create(const char* name) {
     Unittest* ut = unittest_create(name);
 
-    unittest_add(
-        ut, "job_create", test_case_create, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_create", test_case_create,
+        CASE_NONE, NULL);
 
-    unittest_add(
-        ut, "job_create - invalid id", test_case_invalid_id, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_create - invalid id", test_case_invalid_id,
+        CASE_NONE, NULL);
 
-    unittest_add(
-        ut, "job_destroy", test_case_destroy, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_destroy", test_case_destroy,
+        CASE_NONE, NULL);
 
-    unittest_add(
-        ut, "job_get_status", test_case_get_status, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_get_status", test_case_get_status,
+        CASE_NONE, NULL);
 
-    unittest_add(
-        ut, "job_add_task", test_case_add, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_add_task", test_case_add, CASE_NONE, NULL);
+
+    int completed = JOB_COMPLETED;
+    unittest_add(ut, "job_run", test_case_run, CASE_INT, &completed);
+
+    int not_ready = JOB_NOT_READY;
+    unittest_add(ut, "job_run - with bug", test_case_bug,
+        CASE_INT, &not_ready);
+
+    int incomplete = JOB_INCOMPLETE;
+    unittest_add(ut, "job_run - stop", test_case_stop,
+        CASE_INT, &incomplete);
 
     json_settings settings = {0};
     settings.value_extra = json_builder_extra;  /* space for json-builder state */
     char error[128];
     json_value* obj = json_parse_ex(&settings, JOB_JSON, strlen(JOB_JSON), error);
 
-    unittest_add(
-        ut, "job_encode", test_case_encode, CASE_JSON, obj
-    );
+    unittest_add(ut, "job_encode", test_case_encode, CASE_JSON, obj);
 
     Job* job = job_create(VALID_ID);
     for (int i = 0; i < 3; i++) {
@@ -250,17 +317,10 @@ Unittest* test_job_create(const char* name) {
         job_add_task(job, task);
     }
     
-    unittest_add(
-        ut, "job_decode", test_case_decode, CASE_JOB, job
-    );
+    unittest_add(ut, "job_decode", test_case_decode, CASE_JOB, job);
 
-    unittest_add(
-        ut, "job_decode - invalid task", test_case_invalid_task, CASE_NONE, NULL
-    );
+    unittest_add(ut, "job_decode - invalid task",
+        test_case_invalid_task, CASE_NONE, NULL);
 
     return ut;
 }
-
-#undef VALID_ID
-#undef INVALID_ID
-#undef TASK_NAME

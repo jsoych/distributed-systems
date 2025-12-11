@@ -25,7 +25,7 @@
 })
 
 /* create_worker: Creates a new worker. */
-Worker* worker_create(int id) {
+Worker* worker_create(int id, Site* site) {
     if (id <= 1) return NULL;
     Worker *worker;
     if ((worker = malloc(sizeof(worker))) == NULL) {
@@ -35,7 +35,7 @@ Worker* worker_create(int id) {
     worker->id = id;
     worker->status = WORKER_NOT_ASSIGNED;
     worker->job = NULL;
-    worker->engine = engine_create();
+    worker->engine = engine_create(site);
     int err = pthread_mutex_init(&worker->lock, NULL);
     if (err != 0) {
         fprintf(stderr, "worker_create: pthread_mutex_init: %s\n", strerror(err));
@@ -57,13 +57,7 @@ void worker_destroy(Worker *worker) {
         case WORKER_NOT_ASSIGNED:
             engine_destroy(worker->engine);
     }
-    int err = pthread_mutex_destroy(&worker->lock);
-    if (err != 0) {
-        fprintf(stderr, "worker_destroy: pthread_mutex_destroy: %s\n",
-            strerror(err));
-        free(worker);
-        return;
-    }
+    pthread_mutex_destroy(&worker->lock);
     free(worker);
     return;
 }
@@ -94,12 +88,12 @@ static json_value* get_status(Worker* worker) {
     json_object_push(obj, "status", status);
     if (worker->job == NULL) {
         json_value* job_status = json_null_new();
-        json_object_push(obj, "job_status", job_status);
+        json_object_push(obj, "job", job_status);
         return obj;
     }
 
     json_value* job_status = job_encode_status(worker->status);
-    json_object_push(obj, "job_status", job_status);
+    json_object_push(obj, "job", job_status);
     return obj;
 }
 
@@ -154,19 +148,19 @@ json_value* worker_assign(Worker *worker, Job *job) {
 
 /* worker_start: Starts the workers assigned job and return 0, if the
     job started. Otherwise, returns -1. */
-int worker_start(Worker* worker) {
-    return engine_run(worker->engine, worker->job);
+void worker_start(Worker* worker) {
+    engine_start(worker->engine);
 }
 
 /* worker_stop: Stops the workers running job and returns 0, if the
     job stopped. Otherwise, returns -1. */
-int worker_stop(Worker* worker) {
-    return engine_stop(worker->engine);
+void worker_stop(Worker* worker) {
+    engine_stop(worker->engine);
 }
 
 /* worker_status_encode: Encodes the worker status code to its corresponding
     JSON value. */
-json_value* worker_status_encode(int status) {
+json_value* worker_status_map(int status) {
     switch (status) {
         case WORKER_NOT_ASSIGNED:   return json_string_new("not_assigned");
         case WORKER_NOT_WORKING:    return json_string_new("not_working");

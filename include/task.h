@@ -2,10 +2,12 @@
 #define _TASK_H
 
 #define TASK_EXIT_SUCCESS = 0
-#define TASK_EXIT_EXEC_FAILURE 255
+#define TASK_EXIT_SIGNAL 254
+#define TASK_EXIT_FAILURE 255
 
 #include <unistd.h>
 #include "json.h"
+#include "site.h"
 
 enum {
     TASK_NOT_READY,
@@ -17,23 +19,32 @@ enum {
 
 typedef struct _task {
     int status;
-    pid_t pid;
-    int exit_code;
     char name[];
 } Task;
+
+typedef struct _task_runner {
+    Task* task;
+    int saved_status;
+    pid_t task_pid;
+    int exit_code;
+} TaskRunner;
 
 // Construtor and destructor
 Task* task_create(const char* name);
 void task_destroy(Task* task);
 
-// Methods
-int task_run(Task* task, const char* python);
+int task_get_status(Task* task);
 json_value* task_encode(const Task* task);
+json_value* task_encode_status(const Task* task);
+Task* task_decode(const json_value* obj);
 
-// Signals
-void task_stop(Task* task);
+TaskRunner* task_run(Task* task, Site* site);
+
+void task_runner_destroy(TaskRunner* runner);
+void task_runner_stop(TaskRunner* runner);
+void task_runner_wait(TaskRunner* runner);
 
 // Helpers
-Task* task_decode(const json_value* obj);
+json_value* task_status_map(const int status);
 
 #endif

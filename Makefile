@@ -1,29 +1,23 @@
-TARGET := pyoneer
-
-SRC_DIR := src
-INCLUDE_DIR := include
-BUILD_DIR := build
+TARGET := bin/pyoneer
 
 CC := gcc
-CFLAGS := -Wall -Wextra -Wpedantic -I$(INCLUDE_DIR)
+CFLAGS := -Wall -Wextra -Wpedantic -Iinclude
 LDFLAGS := -lm
 
-# Find all source files
-SRCS := src/json.c src/json-builder.c src/json-helpers.c
-SRCS += src/task.c src/job.c
-OBJS := $(subst $(SRC_DIR),$(BUILD_DIR),$(SRCS))
-OBJS := $(subst .c,.o,$(OBJS))
+SRCS := $(shell find src -name '*.c')
+OBJS := $(patsubst src/%.c,build/%.o,$(SRCS))
 
+all: $(TARGET)
 
-all: $(OBJS)
+$(TARGET): $(OBJS)
+	@mkdir -p $(dir $@)
+	$(CC) $(OBJS) $(LDFLAGS) -o $@
 
-$(OBJS): $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
+build/%.o: src/%.c
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-test:
-
 clean:
-	rm -rf build/*
+	rm -rf build/* bin/*
 
-.phony: all test clean
-
+.PHONY: all clean

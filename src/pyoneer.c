@@ -17,22 +17,18 @@ static int pyoneer_assign_job(Pyoneer* pyoneer, Blueprint* blueprint) {
     return worker_assign(pyoneer->as.worker, blueprint->as.job);
 }
 
-static int pyoneer_unassign_job(Pyoneer* pyoneer, Blueprint* blueprint) {
-    return worker_unassign(pyoneer->as.worker, blueprint->as.job);
+static void pyoneer_worker_stop(Pyoneer* pyoneer) {
+    worker_stop(pyoneer->as.worker);
 }
 
-static int pyoneer_worker_start(Pyoneer* pyoneer) {
-    return worker_start(pyoneer->as.worker);
-}
-
-static int pyoneer_worker_stop(Pyoneer* pyoneer) {
-    return worker_stop(pyoneer->as.worker);
+static void pyoneer_worker_start(Pyoneer* pyoneer) {
+    worker_start(pyoneer->as.worker);
 }
 
 /* pyoneer manager wrappers */
 
 /* pyoneer_create: Creates a new pyoneer. */
-Pyoneer* pyoneer_create(int id, int role) {
+Pyoneer* pyoneer_create(int id, int role, Site* site) {
     Pyoneer *pyoneer = malloc(sizeof(Pyoneer));
     if (pyoneer == NULL) {
         perror("pyoneer: pyoneer_create: malloc");
@@ -41,12 +37,10 @@ Pyoneer* pyoneer_create(int id, int role) {
     switch (role) {
         case PYONEER_WORKER:
             pyoneer->role = PYONEER_WORKER;
-            pyoneer->as.worker = worker_create(id);
+            pyoneer->as.worker = worker_create(id, site);
             pyoneer->run = pyoneer_run_job;
             pyoneer->get_status = pyoneer_get_worker_status;
-            pyoneer->get_blueprint_status = pyoneer_get_job_status;
             pyoneer->assign = pyoneer_assign_job;
-            pyoneer->unassign = pyoneer_unassign_job;
             pyoneer->start = pyoneer_worker_start;
             pyoneer->stop = pyoneer_worker_stop;
             break;

@@ -129,21 +129,13 @@ static void* api_client_thread(void* arg) {
                 goto send;
             }
             
-            json_value* status = pyoneer_status_encode(pyoneer->get_status(pyoneer));
-            json_object_push(resp, "status", status);
-
-            status = blueprint_status_encode(pyoneer->get_blueprint_status(pyoneer));
-            json_object_push(resp, "blueprint_status", status);
+            json_value* status = pyoneer->get_status(pyoneer);
+            json_object_push(resp, "pyoneer", status);
         }
         // get_status
         else if (strcmp(cmd->u.string.ptr, "get_status") == 0) {
             json_value* status = pyoneer_status_encode(pyoneer->get_status(pyoneer));
             json_object_push(resp, "status", status);
-        } 
-        // get_blueprint_status
-        else if (strcmp(cmd->u.string.ptr, "get_blueprint_status") == 0) {
-            json_value* status = blueprint_status_encode(pyoneer->get_blueprint_status(pyoneer));
-            json_object_push(resp, "blueprint_status", status);
         }
         // assign
         else if (strcmp(cmd->u.string.ptr, "assign") == 0) {
@@ -169,28 +161,13 @@ static void* api_client_thread(void* arg) {
                 goto send;
             }
         }
-        // unassign
-        else if (strcmp(cmd->u.string.ptr, "unassign") == 0) {
-            Blueprint* blueprint = NULL;
-            if (pyoneer->unassign(pyoneer, blueprint) == -1) {
-                logger_info(logger, API_ERROR_MSG[API_ERR_INTERNAL]);
-                // TODO: Add debug info
-                goto send;
-            }
-            blueprint_destroy(blueprint);
-        }
         // start
         else if (strcmp(cmd->u.string.ptr, "start") == 0) {
-            json_value* status = blueprint_status_encode(
-                pyoneer->get_blueprint_status(pyoneer));
-            json_object_push(resp, "blueprint_status", status);
+            pyoneer->start(pyoneer);
         }
         // Stop
         else if (strcmp(cmd->u.string.ptr, "stop") == 0) {
-            json_value* status = blueprint_status_encode(
-                pyoneer->get_blueprint_status(pyoneer)
-            );
-            json_object_push(resp, "blueprint_status", status);
+            pyoneer->stop(pyoneer);
         }
         // Unknown command
         else {

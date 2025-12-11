@@ -330,16 +330,16 @@ int unittest_run(Unittest* ut) {
         }
 
         if (result != UNITTEST_SUCCESS && rb.size > 0) {
-            struct node* n = malloc(sizeof(struct node));
-            n->name = ut->cases[i]->name;
-            n->result = result;
-            ring_buf_read(&rb, n->buf);
-            list_add(&lst, n);
+            struct node* node = malloc(sizeof(struct node));
+            node->name = ut->cases[i]->name;
+            node->result = result;
+            ring_buf_read(&rb, node->buf);
+            list_add(&lst, node);
         }
 
         close(test_pipe[0]);
     }
-
+    
     // Print summary
     printf("\n----------------------------------------------------------------------\n");
     printf("Ran %d tests\n\n", ut->size);

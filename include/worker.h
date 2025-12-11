@@ -21,7 +21,7 @@ typedef struct _worker {
     pthread_mutex_t lock;
 } Worker;
 
-Worker* worker_create(int id);
+Worker* worker_create(int id, Site* site);
 void worker_destroy(Worker* worker);
 
 // Commands
@@ -30,11 +30,11 @@ json_value* worker_run(Worker* worker, Job* job);
 json_value* worker_assign(Worker* worker, Job* job);
 
 // Signals
-int worker_start(Worker* worker);
-int worker_stop(Worker* worker);
+void worker_start(Worker* worker);
+void worker_stop(Worker* worker);
 
 // Helpers
-json_value* worker_status_encode(int status);
+json_value* worker_status_map(int status);
 int worker_status_decode(const json_value* value);
 
 #endif

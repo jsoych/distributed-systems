@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <signal.h>
 #include <string.h>
 
 #include "job.h"
@@ -23,6 +24,7 @@ Job* job_create(int id) {
     job->status = JOB_READY;
     job->size = 0;
     job->head = NULL;
+    job->tail = NULL;
     return job;
 }
 
@@ -94,14 +96,50 @@ int job_add_task(Job *job, Task* task) {
     }
 
     node->task = task;
-    node->next = job->head;
-    job->head = node;
-    job->size++;
+    node->next = NULL;
+    if (job->size++ == 0) {
+        job->head = node;
+        job->tail = node;
+        return 0;
+    }
+    job->tail->next = node;
+    job->tail = node;
     return 0;
 }
 
+/* job_status_map: Maps job status codes to its corresponding
+    JSON value. */
+json_value* job_status_map(int status) {
+    switch (status) {
+        case JOB_NOT_READY:     return json_string_new("not_ready");
+        case JOB_READY:         return json_string_new("ready");
+        case JOB_RUNNING:       return json_string_new("running");
+        case JOB_COMPLETED:     return json_string_new("completed");
+        case JOB_INCOMPLETE:    return json_string_new("incomplete");
+        default:                return json_null_new();
+    }
+}
+
+/* job_encode_status: Encode the job status. */
+json_value* job_encode_status(Job* job) {
+    json_value* obj = json_object_new(0);
+    if (obj == NULL) return NULL;
+    json_value* status = job_status_map(job_get_status(job));
+    json_object_push(obj, "status", status);
+    json_value* tasks = json_array_new(job->size);
+    job_node* curr = job->head;
+    while (curr) {
+        json_value* task_status = task_encode_status(curr->task);
+        json_object_push_string(task_status, "name", curr->task->name);
+        json_array_push(tasks, task_status);
+        curr = curr->next;
+    }
+    json_object_push(obj, "tasks", tasks);
+    return obj;
+}
+
 /* job_encode: Encodes the job as a JSON object. */
-json_value* job_encode(Job *job) {
+json_value* job_encode(const Job *job) {
     json_value *obj = json_object_new(0);
     if (obj == NULL) return NULL;
     json_object_push_integer(obj, "id", job->id);
@@ -143,15 +181,98 @@ Job* job_decode(const json_value* obj) {
     return job;
 }
 
-/* job_status_map: Maps job status codes to its corresponding
-    JSON value. */
-json_value* job_status_map(int status) {
-    switch (status) {
-        case JOB_NOT_READY:     return json_string_new("not_ready");
-        case JOB_READY:         return json_string_new("ready");
-        case JOB_RUNNING:       return json_string_new("running");
-        case JOB_COMPLETED:     return json_string_new("completed");
-        case JOB_INCOMPLETE:    return json_string_new("incomplete");
-        default:                return json_null_new();
+static void task_runner_handler(void* arg) {
+    TaskRunner* runner = (TaskRunner*)arg;
+    task_runner_destroy(runner);
+}
+
+static void job_runner_handler(void* arg) {
+    JobRunner* runner = (JobRunner*)arg;
+    runner->exit_code = JOB_EXIT_CANCELLED;
+}
+
+static void* job_runner_thread(void* arg) {
+    JobRunner* runner = (JobRunner*)arg;
+    job_node* curr = runner->job->head;
+    while (curr) {
+        int status = task_get_status(curr->task);
+
+        // Run task
+        if (status == TASK_READY || status == TASK_INCOMPLETE) {
+            TaskRunner* tr = task_run(curr->task, runner->job_site);
+            if (tr == NULL) {
+                runner->exit_code = TASK_EXIT_FAILURE;
+                pthread_exit(&runner->exit_code);
+            }
+
+            // Add cleanup handlers
+            pthread_cleanup_push(job_runner_handler, runner);
+            pthread_cleanup_push(task_runner_handler, tr);
+            task_runner_wait(tr);
+            pthread_cleanup_pop(1);
+            pthread_cleanup_pop(0);
+        }
+        
+        // Inconsistent state
+        if (status == TASK_NOT_READY || status == TASK_RUNNING) {
+            runner->exit_code = JOB_EXIT_FAILURE;
+            pthread_exit(&runner->exit_code);
+        }
+
+        curr = curr->next;
     }
+    runner->exit_code = EXIT_SUCCESS;
+    pthread_exit(&runner->exit_code);
+}
+
+/* job_run: Runs the job and returns a new job runner. */
+JobRunner* job_run(Job* job, Site* site) {
+    if (!site || job->size == 0) return NULL;
+
+    JobRunner* runner = malloc(sizeof(JobRunner) +
+        job->size*sizeof(TaskRunner*));
+    if (!runner) {
+        perror("job_run: malloc");
+        return NULL;
+    }
+
+    runner->job = job;
+    runner->job_site = site;
+    runner->exit_code = -1;
+
+    int err = pthread_create(&runner->job_tid, NULL, job_runner_thread, runner);
+    if (err != 0) {
+        fprintf(stderr, "job_run: pthread_create: %s", strerror(err));
+        return NULL;
+    }
+
+    return runner;
+}
+
+/* job_runner_wait: Waits for the job to finish. */
+void job_runner_wait(JobRunner* runner) {
+    if (!runner) return;
+    pthread_join(runner->job_tid, NULL);
+}
+
+/* job_runner_stop: Stops the job. */
+void job_runner_stop(JobRunner* runner) {
+    if (!runner) return;
+    pthread_cancel(runner->job_tid);
+    job_runner_wait(runner);
+}
+
+/* job_runner_start: Starts the job. */
+void job_runner_start(JobRunner* runner) {
+    if (!runner) return;
+    job_runner_stop(runner);
+    pthread_create(&runner->job_tid, NULL, job_runner_thread, runner);
+}
+
+/* job_runner_destroy: Destroys the job runner and releases all of its
+    resources. */
+void job_runner_destroy(JobRunner* runner) {
+    if (runner == NULL) return;
+    job_runner_stop(runner);
+    free(runner);
 }

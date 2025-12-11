@@ -1,11 +1,6 @@
 job:
   id: 33
   tasks:
-  - task:
-      name: packing.py
-      args:
-      - arg1
-      - arg2
-  - task:
-      name: driving.py
-  - booking.py
+  - name: packing.py
+    args: [arg1, arg2]
+  - name: driving.py

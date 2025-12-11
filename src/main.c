@@ -4,12 +4,13 @@
 
 #include "api.h"
 #include "logger.h"
+#include "site.h"
 #include "pyoneer.h"
 
 #define ROLE 1
 #define LEVEL 2
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
     // Check argument count
     if (argc == 5) {
         fprintf(stderr, "main: Error: Expected 4 arguments, but received %d arguments\n", argc - 1);
@@ -32,14 +33,34 @@ int main(int argc, char *argv[]) {
     Pyoneer* pyoneer = NULL;
     int id = (int)strtol(argv[argc - 1], NULL, 10);
 
-    if (strcmp(argv[ROLE], "worker") == 0)
-        pyoneer = pyoneer_create(id, PYONEER_WORKER);
-    else if (strcmp(argv[ROLE], "manager") == 0)
-        pyoneer = pyoneer_create(id, PYONEER_MANAGER);
+    if (strcmp(argv[ROLE], "worker") == 0) {
+        // Create site
+        Site* site = site_create(
+            getenv("PYONEER_PYTHON"),
+            getenv("PYONEER_TASK_DIR"),
+            getenv("PYONEER_WORKING_DIR")
+        );
 
-    if (pyoneer == NULL) {
-        fprintf(stderr, "main: Error: Unable to create pyoneer\n");
-        exit(EXIT_FAILURE);
+        if (site == NULL) {
+            fprintf(stderr, "main: Error: Missing environment variables\n");
+            logger_destroy(logger);
+            exit(EXIT_FAILURE);
+        }
+
+        pyoneer = pyoneer_create(id, PYONEER_WORKER, site);
+        if (pyoneer == NULL) {
+            fprintf(stderr, "main: Error: Unable to create pyoneer\n");
+            logger_destroy(logger);
+            site_destroy(site);
+            exit(EXIT_FAILURE);
+        }
+    } else if (strcmp(argv[ROLE], "manager") == 0) {
+        pyoneer = pyoneer_create(id, PYONEER_MANAGER, NULL);
+        if (pyoneer == NULL) {
+            fprintf(stderr, "main: Error: Unable to create pyoneer\n");
+            logger_destroy(logger);
+            exit(EXIT_FAILURE);
+        }
     }
 
     // Create API server
